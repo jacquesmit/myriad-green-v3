@@ -1,6 +1,8 @@
 // Calls the deployed Firebase HTTPS function to deliver contact form submissions.
+const endpoint = "https://africa-south1-myriad-green-v3.cloudfunctions.net/sendContactEmail";
+
 export async function sendContactEmail(payload) {
-  const response = await fetch('https://us-central1-myriad-green-v3.cloudfunctions.net/sendContactEmail', {
+  const response = await fetch(endpoint, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'

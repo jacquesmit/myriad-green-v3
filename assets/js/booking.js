@@ -58,28 +58,80 @@ const BookingModal = (() => {
     }
   }
 
-  function handleSubmit(event) {
+  async function handleSubmit(event) {
     event.preventDefault();
-    if (!form || !statusText) return;
-    const data = new FormData(form);
+    event.stopImmediatePropagation();
 
-    const requiredFields = ['fullName', 'email', 'phone', 'service'];
-    const missing = requiredFields.filter((field) => !data.get(field));
-    if (missing.length) {
-      statusText.textContent = 'Please fill in all required fields before requesting a booking.';
-      statusText.classList.add('error');
-      statusText.classList.remove('success');
+    if (!form) return;
+
+    const submitButton = form.querySelector('button[type="submit"], [type="submit"]');
+    const formData = new FormData(form);
+    const rawName = formData.get('name') || formData.get('fullName') || '';
+    const payload = {
+      name: String(rawName).trim(),
+      email: String(formData.get('email') || '').trim(),
+      phone: String(formData.get('phone') || '').trim(),
+      service: String(formData.get('service') || '').trim(),
+      preferredDate: String(formData.get('preferredDate') || '').trim(),
+      preferredTime: String(formData.get('preferredTime') || '').trim(),
+      address: String(formData.get('address') || '').trim(),
+      notes: String(formData.get('notes') || '').trim()
+    };
+
+    const requiredValid = payload.name && payload.email && payload.phone && payload.service;
+    if (!requiredValid) {
+      if (statusText) {
+        statusText.textContent = "Please fill in your name, email, phone, and service.";
+      }
       return;
     }
 
-    // Placeholder for future API integration (e.g., REST, GraphQL, Zapier, or calendar booking service)
-    console.log('Booking submitted', Object.fromEntries(data));
+    submitButton?.setAttribute('disabled', 'true');
+    if (statusText) {
+      statusText.textContent = 'Sending your booking...';
+    }
 
-    statusText.textContent = 'Request received! Expect a confirmation call or email within one business day.';
-    statusText.classList.add('success');
-    statusText.classList.remove('error');
-    successBanner?.classList.add('show');
-    form.reset();
+    const preservedService = payload.service;
+
+    try {
+      const response = await fetch(
+        'https://africa-south1-myriad-green-v3.cloudfunctions.net/createBooking',
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }
+      );
+
+      let data;
+      try {
+        data = await response.json();
+      } catch (_) {
+        data = {};
+      }
+
+      if (response.ok && data && data.ok === true) {
+        if (statusText) {
+          statusText.textContent = "Thank you! Your booking has been received. We'll confirm shortly.";
+        }
+        form.reset();
+        const serviceField = form.querySelector('select[name="service"]');
+        if (serviceField) {
+          serviceField.value = preservedService;
+        }
+        setTimeout(() => {
+          close();
+        }, 2000);
+      } else if (statusText) {
+        statusText.textContent = 'Sorry, something went wrong. Please try again.';
+      }
+    } catch (error) {
+      if (statusText) {
+        statusText.textContent = 'Sorry, something went wrong. Please try again.';
+      }
+    } finally {
+      submitButton?.removeAttribute('disabled');
+    }
   }
 
   function setFocusableElements() {

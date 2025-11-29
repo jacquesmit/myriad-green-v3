@@ -1,73 +1,150 @@
-import { onRequest } from "firebase-functions/v2/https";
-import { defineSecret } from "firebase-functions/params";
-import nodemailer from "nodemailer";
+const { onRequest } = require("firebase-functions/v2/https");
+const admin = require("firebase-admin");
+const nodemailer = require("nodemailer");
 
-const GMAIL_USER = defineSecret("GMAIL_USER");
-const GMAIL_PASS = defineSecret("GMAIL_PASS");
-const GMAIL_TO = defineSecret("GMAIL_TO");
+// Gmail credentials must be provided via environment variables:
+// GMAIL_USER (email address), GMAIL_PASS (app password), GMAIL_TO (optional override).
+// Use `firebase functions:config:set` or the Firebase console to store these securely.
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
 
-export const sendContactEmail = onRequest(
-  {
-    region: "us-central1",
-    cors: true,
-    secrets: [GMAIL_USER, GMAIL_PASS, GMAIL_TO]
-  },
-  async (req, res) => {
-    if (req.method !== "POST") {
-      res.status(405).json({ ok: false, error: "Method not allowed" });
-      return;
+exports.sendContactEmail = onRequest({ region: "africa-south1", cors: true }, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({ error: "Method not allowed" });
+    return;
+  }
+
+  const { name, phone, email, service, message } = req.body || {};
+  if (![name, phone, email, service, message].every((value) => typeof value === "string" && value.trim().length)) {
+    res.status(400).json({ error: "Missing required fields" });
+    return;
+  }
+
+  const transporter = nodemailer.createTransport({
+    host: "smtp.gmail.com",
+    port: 465,
+    secure: true,
+    auth: {
+      user: process.env.GMAIL_USER,
+      pass: process.env.GMAIL_PASS
     }
+  });
 
-    const { name, email, phone, service, message } = req.body || {};
-    const requiredFields = [name, email, phone, service, message];
-    const allFieldsPresent = requiredFields.every(
-      (value) => typeof value === "string" && value.trim().length > 0
-    );
+  const to = process.env.GMAIL_TO || process.env.GMAIL_USER;
 
-    if (!allFieldsPresent) {
-      res.status(400).json({ ok: false, error: "Missing required fields" });
-      return;
-    }
+  const mailOptions = {
+    from: `"Myriad Green Website" <${process.env.GMAIL_USER}>`,
+    to,
+    replyTo: email,
+    subject: `[Myriad Green] New contact enquiry - ${service || "General"}`,
+    text: `
+New enquiry from the Myriad Green website:
 
-    const user = GMAIL_USER.value();
-    const pass = GMAIL_PASS.value();
-    const to = GMAIL_TO.value() || user;
+Name: ${name}
+Phone: ${phone}
+Email: ${email}
+Service: ${service}
 
-    if (!user || !pass || !to) {
-      console.error("sendContactEmail error: Missing Gmail secret values");
-      res.status(500).json({ ok: false, error: "Email failed to send" });
-      return;
-    }
+Message:
+${message}
+    `.trim(),
+    html: `
+      <h2>New enquiry from the Myriad Green website</h2>
+      <p><strong>Name:</strong> ${name}</p>
+      <p><strong>Phone:</strong> ${phone}</p>
+      <p><strong>Email:</strong> ${email}</p>
+      <p><strong>Service:</strong> ${service}</p>
+      <p><strong>Message:</strong></p>
+      <p>${(message || "").replace(/\n/g, "<br>")}</p>
+    `
+  };
+
+  try {
+    await transporter.sendMail(mailOptions);
+    res.status(200).json({ ok: true });
+  } catch (error) {
+    console.error("sendContactEmail error:", error);
+    res.status(500).json({ ok: false, error: "Email failed to send" });
+  }
+});
+
+exports.createBooking = onRequest({ region: "africa-south1", cors: true }, async (req, res) => {
+  if (req.method !== "POST") {
+    res.status(405).json({ ok: false, error: "Method not allowed" });
+    return;
+  }
+
+  const {
+    name,
+    email,
+    phone,
+    service,
+    preferredDate,
+    preferredTime,
+    address,
+    notes,
+  } = req.body || {};
+
+  const required = [name, email, phone, service];
+  const allFieldsPresent = required.every(
+    (value) => typeof value === "string" && value.trim().length > 0
+  );
+
+  if (!allFieldsPresent) {
+    res.status(400).json({
+      ok: false,
+      error: "Missing required fields: name, email, phone, service",
+    });
+    return;
+  }
+
+  try {
+    const bookingData = {
+      name: String(name).trim(),
+      email: String(email).trim(),
+      phone: String(phone).trim(),
+      service: String(service).trim(),
+      preferredDate: preferredDate || null,
+      preferredTime: preferredTime || null,
+      address: address || null,
+      notes: notes || null,
+      status: "pending",
+      source: "website-v3",
+      createdAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+
+    const docRef = await admin.firestore().collection("bookings").add(bookingData);
 
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: { user, pass }
+      secure: true,
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_PASS,
+      },
     });
 
     const mailOptions = {
-      from: `"Myriad Green" <${user}>`,
-      to,
+      from: `"Myriad Green Website" <${process.env.GMAIL_USER}>`,
+      to: process.env.GMAIL_TO || process.env.GMAIL_USER,
       replyTo: email,
-      subject: `New contact form enquiry – ${service}`,
-      text: [
-        "New enquiry from the Myriad Green contact form:",
-        "",
-        `Name: ${name}`,
-        `Email: ${email}`,
-        `Phone: ${phone}`,
-        `Service: ${service}`,
-        "",
-        "Message:",
-        message
-      ].join("\n")
+      subject: `[Myriad Green] New Booking – ${service}`,
+      text: JSON.stringify({ id: docRef.id, ...bookingData }, null, 2),
     };
 
     try {
       await transporter.sendMail(mailOptions);
-      res.status(200).json({ ok: true });
-    } catch (err) {
-      console.error("sendContactEmail error:", err);
-      res.status(500).json({ ok: false, error: "Email failed to send" });
+    } catch (emailErr) {
+      console.error("createBooking email error:", emailErr);
     }
+
+    res.status(200).json({ ok: true, id: docRef.id });
+  } catch (err) {
+    console.error("createBooking error:", err);
+    res.status(500).json({
+      ok: false,
+      error: "Failed to create booking",
+    });
   }
-);
+});
