@@ -1,31 +1,41 @@
 /* Site bootstrap: inject shared partials, wire navigation, theme toggle, and contact form behaviors. */
 (function () {
   const script = document.currentScript;
+  // baseUrl lets partials resolve correctly from nested folders; extend this logic if pages move deeper (e.g. /services-pages/ or /blog/posts/)
   const baseUrl = script ? script.src.replace(/assets\/js\/site-init\.js.*$/, '') : './';
 
   const partials = [
-    { selector: '#nav-placeholder', path: 'partials/nav.html', callback: initNavigation },
-    { selector: '#footer-placeholder', path: 'partials/footer.html', callback: initFooter },
-    { selector: '#booking-modal-root', path: 'partials/booking-modal.html', callback: initBooking }
+    { selector: '#nav-placeholder', path: 'partials/nav.html', label: 'Navigation', callback: initNavigation },
+    { selector: '#footer-placeholder', path: 'partials/footer.html', label: 'Footer', callback: initFooter },
+    { selector: '#booking-modal-root', path: 'partials/booking-modal.html', label: 'Booking Modal', callback: initBooking }
   ];
 
   document.addEventListener('DOMContentLoaded', () => {
-    partials.forEach((partial) => injectPartial(partial));
+    partials.forEach(({ selector, path, label, callback }) => {
+      loadPartial(selector, path, label).then((host) => {
+        if (host && typeof callback === 'function') {
+          callback(host);
+        }
+      });
+    });
     initSmoothScroll();
     initContactForm();
   });
 
-  async function injectPartial({ selector, path, callback }) {
+  async function loadPartial(selector, url, label) {
     const host = document.querySelector(selector);
-    if (!host) return;
+    if (!host) return null;
     try {
-      const response = await fetch(new URL(path, baseUrl));
-      host.innerHTML = await response.text();
-      if (typeof callback === 'function') {
-        callback(host);
+      const response = await fetch(new URL(url, baseUrl));
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}`);
       }
+      host.innerHTML = await response.text();
+      return host;
     } catch (error) {
-      console.error('Failed to load partial', path, error);
+      console.error('[MyriadGreen] Failed to load', label, 'from', url, error);
+      host.innerHTML = `<!-- ${label} failed to load -->`;
+      return null;
     }
   }
 
