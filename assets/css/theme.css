@@ -1,0 +1,79 @@
+/*
+  Myriad Green Design Tokens
+  Reuse variables across components and pages for a cohesive system.
+*/
+:root {
+  /* Brand Colors */
+  --color-bg: #ffffff;
+  --color-bg-alt: #f6faf6;
+  --color-surface: #ffffff;
+  --color-text: #222222;
+  --color-text-muted: #5c5f5c;
+  --color-primary: #87e64b;
+  --color-primary-dark: #4f7f26;
+  --color-accent: #d6f47a;
+  --color-border: #e0e7df;
+  --color-header-footer-bg: #1f2a1f;
+  --color-header-footer-text: #fff5ed;
+  --color-success: #3ca36b;
+  --color-warning: #ffb347;
+  --color-danger: #d9534f;
+
+  /* Typography */
+  --font-family-base: 'Poppins', 'Segoe UI', 'Inter', system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-size-body: 1rem;
+  --font-size-sm: 0.875rem;
+  --font-size-lg: 1.125rem;
+  --font-size-h1: clamp(2.5rem, 5vw, 3.25rem);
+  --font-size-h2: clamp(2rem, 4vw, 2.5rem);
+  --font-size-h3: clamp(1.5rem, 3vw, 1.875rem);
+  --font-size-h4: 1.25rem;
+  --line-height-tight: 1.2;
+  --line-height-normal: 1.5;
+  --line-height-loose: 1.8;
+
+  /* Spacing Scale */
+  --space-2xs: 0.25rem;
+  --space-xs: 0.5rem;
+  --space-sm: 0.75rem;
+  --space-md: 1rem;
+  --space-lg: 1.5rem;
+  --space-xl: 2rem;
+  --space-2xl: 3rem;
+  --space-3xl: 4rem;
+
+  /* Radii */
+  --radius-sm: 0.25rem;
+  --radius-md: 0.5rem;
+  --radius-lg: 0.75rem;
+  --radius-pill: 999px;
+
+  /* Shadows */
+  --shadow-soft: 0 10px 30px rgba(16, 50, 16, 0.1);
+  --shadow-lg: 0 20px 60px rgba(8, 30, 8, 0.18);
+
+  /* Transitions */
+  --transition-fast: 150ms ease;
+  --transition-normal: 250ms ease;
+
+  /* Layout */
+  --container-max: 1200px;
+  --header-height: 4.5rem;
+}
+
+/* Dark theme overrides keep eco-tech feel while boosting contrast */
+[data-theme="dark"] {
+  --color-bg: #0f150f;
+  --color-bg-alt: #121c12;
+  --color-surface: #1b261b;
+  --color-text: #f1f7ef;
+  --color-text-muted: #b7c4b7;
+  --color-border: #273327;
+  --color-primary: #9df160;
+  --color-primary-dark: #73b43f;
+  --color-accent: #c7f26c;
+  --color-header-footer-bg: #060b06;
+  --color-header-footer-text: #e6ffe6;
+  --shadow-soft: 0 10px 30px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 20px 60px rgba(0, 0, 0, 0.55);
+}

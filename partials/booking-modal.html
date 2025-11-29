@@ -1,0 +1,48 @@
+<div class="modal-backdrop" id="booking-modal-backdrop" aria-hidden="true">
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="booking-modal-title">
+    <header>
+      <div>
+        <p class="badge">Priority Scheduling</p>
+        <h2 id="booking-modal-title">Book a Service</h2>
+        <p>Lock in a visit from our senior technicians. We confirm every booking within one business day.</p>
+      </div>
+      <button type="button" aria-label="Close booking form" data-close-modal>&times;</button>
+    </header>
+    <div class="booking-success" role="status">Thank you! A coordinator will confirm shortly.</div>
+    <form data-booking-form novalidate>
+      <label>
+        Full Name
+        <input type="text" name="fullName" required />
+      </label>
+      <label>
+        Email Address
+        <input type="email" name="email" required />
+      </label>
+      <label>
+        Phone Number
+        <input type="tel" name="phone" required />
+      </label>
+      <label>
+        Preferred Service
+        <select name="service" required>
+          <option value="">Select a service</option>
+          <option value="Irrigation Systems">Irrigation Systems</option>
+          <option value="Leak Detection">Leak Detection</option>
+          <option value="Drain Unblocking">Drain Unblocking</option>
+          <option value="Backup Water Systems">Backup Water Systems</option>
+          <option value="General Consultation">General Consultation</option>
+        </select>
+      </label>
+      <label>
+        Preferred Date
+        <input type="date" name="preferredDate" />
+      </label>
+      <label>
+        Notes for Our Team
+        <textarea name="notes" placeholder="Tell us about the property, urgency, or access requirements"></textarea>
+      </label>
+      <button class="btn btn-primary" type="submit">Submit Booking Request</button>
+      <p class="form-status" data-booking-status>We confirm availability and send documentation via email.</p>
+    </form>
+  </div>
+</div>
