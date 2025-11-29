@@ -1,8 +1,6 @@
-// /api/contact is routed to the Firebase Function `sendContactEmail`.
-// Gmail credentials (GMAIL_USER, GMAIL_PASS, GMAIL_TO) must be configured as Firebase environment variables.
-// When running locally, this endpoint will 404 unless the Firebase emulator or deployed functions are available.
+// Calls the deployed Firebase HTTPS function to deliver contact form submissions.
 export async function sendContactEmail(payload) {
-  const response = await fetch('/api/contact', {
+  const response = await fetch('https://us-central1-myriad-green-v3.cloudfunctions.net/sendContactEmail', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json'
@@ -11,15 +9,9 @@ export async function sendContactEmail(payload) {
   });
 
   if (!response.ok) {
-    let message = 'Failed to send contact message.';
-    try {
-      const data = await response.json();
-      if (data && data.error) {
-        message = data.error;
-      }
-    } catch (error) {
-      // ignore JSON parsing issues and use the generic message
-    }
-    throw new Error(message);
+    const text = await response.text();
+    throw new Error(`Contact email failed (${response.status}): ${text || 'No response body'}`);
   }
+
+  return true;
 }

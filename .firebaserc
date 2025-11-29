@@ -1,6 +1,9 @@
 {
   "projects": {
-    "default": "myriadgreen-web"
+    "default": "myriadgreen-web",
+    "myriadgreen-v3": "myriad-green-v3"
   },
+  "targets": {},
+  "etags": {},
   "_comment": "Replace 'myriadgreen-web' with your actual Firebase project ID before deploying."
 }

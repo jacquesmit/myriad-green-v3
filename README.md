@@ -59,9 +59,21 @@ If you want to exercise the contact form against the backend locally, run the Fi
 ## 6. Contact Form Backend
 - `/api/contact` is routed (via `firebase.json` rewrites) to the Cloud Function `sendContactEmail`.
 - `functions/index.js` validates the POST body, boots Nodemailer with Gmail SMTP credentials, and sends formatted emails to the configured recipient.
-- Secrets are stored as Firebase environment variables (preferred command: `firebase functions:secrets:set GMAIL_USER="name@example.com"`, plus `GMAIL_PASS` for the app password and optional `GMAIL_TO`).
+- Secrets are stored via the Firebase Secrets API (e.g., `firebase functions:secrets:set GMAIL_USER`, plus `GMAIL_PASS` for the app password and optional `GMAIL_TO`).
 - Local testing requires the Firebase emulator or deployed functions; otherwise the fetch will return a 404.
 - Frontend requests are made through `assets/js/email-handler.js`, which exports `sendContactEmail(payload)` for `site-init.js` to call after form validation.
+
+### Email Backend – Secrets Setup
+1. **Generate a Gmail App Password**
+   - Enable 2-Step Verification on the Gmail account that will send mail (Google Account → Security → 2-Step Verification).
+   - Visit https://myaccount.google.com/apppasswords, choose "Mail" as the app, select the device (or choose "Other" and label it "Firebase"), then copy the 16-character password Google provides.
+2. **Store credentials with Firebase Secrets**
+   - Run `firebase functions:secrets:set GMAIL_USER` and paste the Gmail address when prompted.
+   - Run `firebase functions:secrets:set GMAIL_PASS` and paste the 16-character app password (no spaces).
+   - (Optional) Run `firebase functions:secrets:set GMAIL_TO` if you want contact submissions to go to a different recipient than the sending account.
+   - Repeat these commands for each Firebase project/environment so every deployment has the required secrets.
+3. **Do not use normal Gmail passwords**
+   - Regular passwords will be rejected because Google blocks SMTP logins from Cloud Functions without an app password. Always use an app password tied to an account with 2-Step Verification enabled.
 
 ## 7. Theming & Design Tokens
 `assets/css/theme.css` defines CSS variables for brand colors, typography scales, spacing steps, radii, and shadows. All new components should consume these tokens (e.g., `var(--color-primary)`, `var(--space-lg)`) instead of hard-coded values to keep the experience consistent across the site and future themes.
@@ -73,7 +85,7 @@ If you want to exercise the contact form against the backend locally, run the Fi
 - Images rely on descriptive `alt` text and `<picture>` elements for responsive delivery.
 
 ## 9. TODO / Roadmap
-- Configure real Firebase project ID in `.firebaserc`, set Gmail secrets via `firebase functions:config:set`, and deploy `sendContactEmail`.
+- Configure real Firebase project ID in `.firebaserc`, set Gmail secrets via `firebase functions:secrets:set`, and deploy `sendContactEmail`.
 - Wire booking modal submissions to a backend (CRM, calendar, or Firebase Function) and add analytics tracking.
 - Add a blog or API-driven insights section to replace the "Coming Soon" cards.
 - Run a Lighthouse/performance pass and tune asset loading.

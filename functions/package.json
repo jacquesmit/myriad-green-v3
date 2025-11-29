@@ -3,15 +3,15 @@
   "version": "1.0.0",
   "main": "index.js",
   "engines": {
-    "node": "20"
+    "node": "18"
   },
   "scripts": {
     "serve": "firebase emulators:start --only functions,hosting",
     "deploy": "firebase deploy --only functions,hosting"
   },
   "dependencies": {
-    "firebase-admin": "^13.0.0",
-    "firebase-functions": "^4.5.0",
+    "firebase-admin": "^13.6.0",
+    "firebase-functions": "^6.1.1",
     "nodemailer": "^6.9.0"
   }
 }
