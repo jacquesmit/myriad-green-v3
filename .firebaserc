@@ -1,0 +1,6 @@
+{
+  "projects": {
+    "default": "myriadgreen-web"
+  },
+  "_comment": "Replace 'myriadgreen-web' with your actual Firebase project ID before deploying."
+}

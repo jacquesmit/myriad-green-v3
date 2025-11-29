@@ -1,8 +1,9 @@
+import { sendContactEmail } from './email-handler.js';
+
 /* Site bootstrap: inject shared partials, wire navigation, theme toggle, and contact form behaviors. */
 (function () {
-  const script = document.currentScript;
   // baseUrl lets partials resolve correctly from nested folders; extend this logic if pages move deeper (e.g. /services-pages/ or /blog/posts/)
-  const baseUrl = script ? script.src.replace(/assets\/js\/site-init\.js.*$/, '') : './';
+  const baseUrl = import.meta.url.replace(/assets\/js\/site-init\.js.*$/, '');
 
   const partials = [
     { selector: '#nav-placeholder', path: 'partials/nav.html', label: 'Navigation', callback: initNavigation },
@@ -104,7 +105,7 @@
     if (!form) return;
     const status = form.querySelector('[data-contact-status]');
 
-    form.addEventListener('submit', (event) => {
+    form.addEventListener('submit', async (event) => {
       event.preventDefault();
       const data = new FormData(form);
       const requiredFields = ['name', 'phone', 'email', 'service', 'message'];
@@ -114,16 +115,50 @@
         return;
       }
 
-      // Placeholder for CRM / email / webhook integration.
-      console.log('Contact form submitted', Object.fromEntries(data));
-      updateStatus('Thanks for reaching out! Expect a call or email today.', 'success');
-      form.reset();
+      if (!isValidEmail(data.get('email'))) {
+        updateStatus('Please enter a valid email address so we can reply.', 'error');
+        return;
+      }
+
+      if (!isValidPhone(data.get('phone'))) {
+        updateStatus('Please enter a phone number with at least 8 digits.', 'error');
+        return;
+      }
+
+      updateStatus('Sending your message...', 'info');
+
+      const payload = {
+        name: data.get('name'),
+        phone: data.get('phone'),
+        email: data.get('email'),
+        service: data.get('service'),
+        message: data.get('message')
+      };
+
+      try {
+        await sendContactEmail(payload);
+        updateStatus('Thanks! We received your message and will contact you shortly.', 'success');
+        form.reset();
+      } catch (error) {
+        console.error('Contact email failed:', error);
+        updateStatus('Something went wrong sending your message. Please try again or WhatsApp us.', 'error');
+      }
     });
 
     function updateStatus(message, variant) {
       if (!status) return;
       status.textContent = message;
       status.className = `form-status ${variant}`;
+    }
+
+    function isValidEmail(value) {
+      return typeof value === 'string' && value.includes('@');
+    }
+
+    function isValidPhone(value) {
+      if (typeof value !== 'string') return false;
+      const digits = value.replace(/\D/g, '');
+      return digits.length >= 8;
     }
   }
 
