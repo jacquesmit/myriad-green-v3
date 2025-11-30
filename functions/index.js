@@ -2,6 +2,7 @@ const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
 const nodemailer = require("nodemailer");
+const { generateBookingPdf } = require("./pdf/bookingPdf.js");
 
 const GMAIL_USER = defineSecret("GMAIL_USER");
 const GMAIL_PASS = defineSecret("GMAIL_PASS");
@@ -198,7 +199,7 @@ exports.createBooking = onRequest(
     }
 
     try {
-      const bookingData = {
+      const bookingRecord = {
         name: String(name).trim(),
         email: String(email).trim(),
         phone: String(phone).trim(),
@@ -212,7 +213,50 @@ exports.createBooking = onRequest(
         createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
-      const docRef = await admin.firestore().collection("bookings").add(bookingData);
+      const docRef = await admin.firestore().collection("bookings").add(bookingRecord);
+
+      const toNumberOrNull = (value) => {
+        if (value === undefined || value === null || value === "") {
+          return null;
+        }
+        const num = Number(value);
+        return Number.isFinite(num) ? num : null;
+      };
+
+      const basePrice = toNumberOrNull(req.body?.basePrice);
+      const calloutFee = toNumberOrNull(req.body?.calloutFee);
+      const providedTotal = toNumberOrNull(req.body?.totalPrice);
+      const totalPrice =
+        providedTotal !== null
+          ? providedTotal
+          : basePrice !== null && calloutFee !== null
+            ? basePrice + calloutFee
+            : null;
+
+      const bookingData = {
+        id: docRef.id,
+        ...bookingRecord,
+        basePrice,
+        calloutFee,
+        totalPrice,
+      };
+
+      let pdfBuffer = null;
+      try {
+        pdfBuffer = await generateBookingPdf(bookingData);
+      } catch (pdfErr) {
+        console.error("createBooking pdf generation error:", pdfErr);
+      }
+
+      const pdfAttachments = pdfBuffer
+        ? [
+            {
+              filename: "myriad-green-booking-summary.pdf",
+              content: pdfBuffer,
+              contentType: "application/pdf",
+            },
+          ]
+        : undefined;
 
       const user = GMAIL_USER.value();
       const pass = GMAIL_PASS.value();
@@ -285,7 +329,8 @@ exports.createBooking = onRequest(
             from: `"Myriad Green" <${user}>`,
             to: internalRecipient,
             subject: `New Booking – ${bookingData.service}`,
-            text: internalText
+            text: internalText,
+            attachments: pdfAttachments,
           });
 
           await transporter.sendMail({
@@ -293,7 +338,8 @@ exports.createBooking = onRequest(
             to: bookingData.email,
             replyTo: user,
             subject: "Myriad Green – Booking Received",
-            html: clientHtml
+            html: clientHtml,
+            attachments: pdfAttachments,
           });
         } catch (emailErr) {
           console.error("createBooking email error:", emailErr);
