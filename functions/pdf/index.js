@@ -3,15 +3,120 @@ const fs = require("fs");
 const path = require("path");
 
 const LOGO_PATH = path.join(__dirname, "..", "assets", "myriad_green_logo.png");
-const LABEL_COLOR = "#6b7280";
-const VALUE_COLOR = "#0f172a";
-const ACCENT_COLOR = "#8fd14f";
-const FOOTER_PRIMARY = "#4b5563";
-const FOOTER_SECONDARY = "#9ca3af";
-const HEADER_BG = "#ffffff";
-const HEADER_ACCENT = "#e2e8f0";
-const SECTION_HEADING = "#041b13";
-const MUTED_BG = "#f8fafc";
+const TEMPLATE_TYPES = {
+  BOOKING: "booking",
+  QUOTE: "quote",
+  INVOICE: "invoice",
+};
+const DEFAULT_THEME = "light";
+const DEFAULT_CURRENCY = "ZAR";
+const FOOTER_RESERVE = 160;
+const CONTINUATION_NOTICE = "Continued on next page…";
+
+const THEMES = {
+  light: {
+    pageBackground: "#FFFFFF",
+    surfaceBackground: "#ffffff",
+    surfaceBorder: "#e5e7eb",
+    panelBackground: "#f6f8fb",
+    panelBorder: "#e2e8f0",
+    headerBackground: "#f7f9fc",
+    headerBorder: "#e2e8f0",
+    logoStrip: "#ffffff",
+    textPrimary: "#222222",
+    textSecondary: "#4b5563",
+    label: "#5f6c7b",
+    value: "#111827",
+    accent: "#16a34a",
+    footerPrimary: "#1f2937",
+    footerSecondary: "#6b7280",
+  },
+  dark: {
+    pageBackground: "#050608",
+    surfaceBackground: "#0d1114",
+    surfaceBorder: "#1f2a24",
+    panelBackground: "#151c20",
+    panelBorder: "#1f2a24",
+    headerBackground: "#0f1519",
+    headerBorder: "#1f2a24",
+    logoStrip: "#fefefe",
+    textPrimary: "#f8fafc",
+    textSecondary: "#cbd5e1",
+    label: "#a8b5c4",
+    value: "#f8fafc",
+    accent: "#8fd14f",
+    footerPrimary: "#f8fafc",
+    footerSecondary: "#cbd5e1",
+  },
+};
+
+const TYPOGRAPHY = {
+  baseFont: "Helvetica",
+  bodySize: 11,
+  labelSize: 10,
+  sectionHeadingSize: 15,
+  titleSize: 26,
+  subtitleSize: 13,
+  smallSize: 9,
+};
+
+const BODY_LINE_GAP = 2;
+
+/**
+ * @typedef {Object} QuoteLineItem
+ * @property {string} description
+ * @property {number|string} [quantity]
+ * @property {number|string} [unitPrice]
+ * @property {number|string} [total]
+ */
+
+/**
+ * @typedef {Object} QuotePayload
+ * @property {string} [quoteNumber]
+ * @property {Date|string} [issueDate]
+ * @property {Date|string} [validUntil]
+ * @property {string} [clientName]
+ * @property {string} [clientEmail]
+ * @property {string} [clientPhone]
+ * @property {string} [clientAddress]
+ * @property {string} [serviceType]
+ * @property {string} [location]
+ * @property {Object} [project]
+ * @property {QuoteLineItem[]} [lineItems]
+ * @property {string} [currency]
+ * @property {number} [subtotal]
+ * @property {number} [vatAmount]
+ * @property {string} [vatLabel]
+ * @property {number} [total]
+ * @property {string} [notes]
+ * @property {string} [terms]
+ * @property {string} [accountManager]
+ */
+
+/**
+ * @typedef {Object} InvoicePayload
+ * @property {string} [invoiceNumber]
+ * @property {Date|string} [issueDate]
+ * @property {Date|string} [dueDate]
+ * @property {string} [clientName]
+ * @property {string} [clientEmail]
+ * @property {string} [clientPhone]
+ * @property {string} [clientAddress]
+ * @property {string} [serviceType]
+ * @property {string} [location]
+ * @property {Object} [project]
+ * @property {QuoteLineItem[]} [lineItems]
+ * @property {string} [currency]
+ * @property {number} [subtotal]
+ * @property {number} [vatAmount]
+ * @property {string} [vatLabel]
+ * @property {number} [total]
+ * @property {string} [paymentTerms]
+ * @property {string} [paymentInstructions]
+ * @property {Object} [bankDetails]
+ * @property {string} [terms]
+ * @property {string} [accountManager]
+ */
 
 const formatValue = (value) => {
   if (value === undefined || value === null) {
@@ -19,25 +124,6 @@ const formatValue = (value) => {
   }
   const trimmed = String(value).trim();
   return trimmed.length ? trimmed : "Not provided";
-};
-
-const drawField = (doc, x, startY, label, value, width) => {
-  const normalizedValue = formatValue(value);
-  doc
-    .font("Helvetica-Bold")
-    .fontSize(9)
-    .fillColor(LABEL_COLOR)
-    .text(label, x, startY, { width });
-
-  const valueY = startY + 12;
-  doc
-    .font("Helvetica")
-    .fontSize(10.5)
-    .fillColor(VALUE_COLOR)
-    .text(normalizedValue, x, valueY, { width });
-
-  const valueHeight = doc.heightOfString(normalizedValue, { width });
-  return valueY + valueHeight + 14;
 };
 
 const formatDateTime = (value) => {
@@ -58,235 +144,833 @@ const formatDateTime = (value) => {
   });
 };
 
-function generateBookingPdf(bookingData = {}) {
-  return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: "A4", margin: 40 });
+const formatCurrency = (value, currency = DEFAULT_CURRENCY) => {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return currency === "ZAR" ? "R 0.00" : `${currency} 0.00`;
+  }
+  const prefix = currency === "ZAR" ? "R" : `${currency} `;
+  return `${prefix}${numeric.toFixed(2)}`;
+};
+
+const createPdfBuffer = (renderFn) =>
+  new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ size: "A4", margin: 40, bufferPages: true });
     const chunks = [];
+
+    doc.font(TYPOGRAPHY.baseFont).fontSize(TYPOGRAPHY.bodySize).lineGap(BODY_LINE_GAP);
 
     doc.on("data", (chunk) => chunks.push(chunk));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
     doc.on("error", reject);
 
-    const { width: pageWidth, height: pageHeight } = doc.page;
-    const marginLeft = doc.page.margins.left;
-    const marginRight = doc.page.margins.right;
-    const marginTop = doc.page.margins.top;
-    const marginBottom = doc.page.margins.bottom;
-    const contentWidth = pageWidth - marginLeft - marginRight;
+    renderFn(doc);
+    doc.end();
+  });
 
-    const headerHeight = 120;
-    const headerY = marginTop;
+const resolveTheme = (themeName = DEFAULT_THEME) => THEMES[themeName] || THEMES[DEFAULT_THEME];
+
+const getLayout = (doc) => {
+  const { width, height } = doc.page;
+  const { left, right, top, bottom } = doc.page.margins;
+  return {
+    pageWidth: width,
+    pageHeight: height,
+    marginLeft: left,
+    marginRight: right,
+    marginTop: top,
+    marginBottom: bottom,
+    contentWidth: width - left - right,
+  };
+};
+
+const drawPageBackground = (doc, theme, layout) => {
+  doc.save();
+  doc.rect(0, 0, layout.pageWidth, layout.pageHeight).fill(theme.pageBackground);
+  doc.restore();
+};
+
+const drawSurface = (doc, theme, layout) => {
+  const padding = 12;
+  doc.save();
+  doc
+    .roundedRect(
+      layout.marginLeft - padding,
+      layout.marginTop - padding,
+      layout.contentWidth + padding * 2,
+      layout.pageHeight - layout.marginTop - layout.marginBottom + padding * 2,
+      18
+    )
+    .lineWidth(1)
+    .fillAndStroke(theme.surfaceBackground, theme.surfaceBorder || theme.panelBorder);
+  doc.restore();
+};
+
+const drawHeader = (doc, theme, layout, { title, subtitle }) => {
+  const headerHeight = 140;
+  const headerX = layout.marginLeft;
+  const headerY = layout.marginTop;
+  const headerWidth = layout.contentWidth;
+  const logoStripWidth = 220;
+
+  doc.save();
+  doc
+    .roundedRect(headerX, headerY, headerWidth, headerHeight, 18)
+    .lineWidth(1)
+    .fillAndStroke(theme.headerBackground, theme.headerBorder);
+  doc.restore();
+
+  doc.save();
+  doc
+    .rect(headerX, headerY, logoStripWidth, headerHeight)
+    .fillAndStroke(theme.logoStrip, theme.headerBorder);
+  doc.restore();
+
+  if (fs.existsSync(LOGO_PATH)) {
+    doc.image(LOGO_PATH, headerX + 32, headerY + 24, {
+      fit: [150, 70],
+      align: "left",
+    });
+  }
+
+  const brandTextX = headerX + 32;
+  const brandTextY = headerY + 96;
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(13)
+    .fillColor("#1f2937")
+    .text("Myriad Green", brandTextX, brandTextY, { width: logoStripWidth - 64 });
+  doc
+    .font("Helvetica")
+    .fontSize(10.5)
+    .fillColor("#6b7280")
+    .text("Infinite Green Solutions", brandTextX, doc.y + 2, { width: logoStripWidth - 64 });
+
+  const titleX = headerX + logoStripWidth + 24;
+  const titleWidth = headerWidth - logoStripWidth - 36;
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(TYPOGRAPHY.titleSize)
+    .fillColor(theme.textPrimary)
+    .text(title, titleX, headerY + 28, { width: titleWidth, align: "right", lineGap: BODY_LINE_GAP });
+  doc
+    .font("Helvetica")
+    .fontSize(TYPOGRAPHY.subtitleSize)
+    .fillColor(theme.textSecondary)
+    .text(subtitle || "Prepared by Myriad Green", titleX, doc.y + 6, {
+      width: titleWidth,
+      align: "right",
+      lineGap: BODY_LINE_GAP,
+    });
+
+  return headerY + headerHeight;
+};
+
+const addPageWithSurface = (doc, theme, previousLayout) => {
+  doc.addPage();
+  const newLayout = getLayout(doc);
+  drawPageBackground(doc, theme, newLayout);
+  drawSurface(doc, theme, newLayout);
+  doc.y = newLayout.marginTop;
+  return { ...previousLayout, ...newLayout, headerBottom: newLayout.marginTop };
+};
+
+const ensureSpace = (doc, theme, layout, requiredHeight, options = {}) => {
+  const reserve = options.reserve ?? FOOTER_RESERVE;
+  const limit = layout.pageHeight - layout.marginBottom - reserve;
+  if (doc.y + requiredHeight <= limit) {
+    return layout;
+  }
+  if (typeof options.beforeAddPage === "function") {
+    options.beforeAddPage();
+  }
+  return addPageWithSurface(doc, theme, layout);
+};
+
+const drawSectionHeading = (doc, theme, layout, label, y) => {
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(TYPOGRAPHY.sectionHeadingSize)
+    .fillColor(theme.textPrimary)
+    .text(label, layout.marginLeft, y, { lineGap: BODY_LINE_GAP });
+  doc
+    .moveTo(layout.marginLeft, doc.y + 6)
+    .lineTo(layout.marginLeft + 80, doc.y + 6)
+    .lineWidth(2)
+    .strokeColor(theme.accent)
+    .stroke();
+  return doc.y + 24;
+};
+
+const drawField = (doc, theme, { x, y, width, label, value }) => {
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(TYPOGRAPHY.labelSize)
+    .fillColor(theme.label)
+    .text(label, x, y, { width });
+  const valueY = doc.y + 4;
+  const normalized = formatValue(value);
+  doc
+    .font("Helvetica")
+    .fontSize(TYPOGRAPHY.bodySize)
+    .fillColor(theme.value)
+    .text(normalized, x, valueY, { width, lineGap: BODY_LINE_GAP });
+  const valueHeight = doc.heightOfString(normalized, { width, lineGap: BODY_LINE_GAP });
+  return valueY + valueHeight + 14;
+};
+
+const drawPanel = (doc, theme, layout, { y, body = "Not provided", minHeight = 0 }) => {
+  doc.font("Helvetica").fontSize(TYPOGRAPHY.bodySize);
+  const innerWidth = layout.contentWidth - 36;
+  const bodyHeight = doc.heightOfString(body, { width: innerWidth, lineGap: BODY_LINE_GAP });
+  const panelHeight = Math.max(bodyHeight + 32, minHeight);
+  const panelY = y + 8;
+
+  doc.save();
+  doc
+    .roundedRect(layout.marginLeft, panelY, layout.contentWidth, panelHeight, 12)
+    .fill(theme.panelBackground)
+    .strokeColor(theme.panelBorder)
+    .lineWidth(1)
+    .stroke();
+  doc.restore();
+
+  doc
+    .font("Helvetica")
+    .fontSize(TYPOGRAPHY.bodySize)
+    .fillColor(theme.value)
+    .text(body, layout.marginLeft + 18, panelY + 14, {
+      width: innerWidth,
+      lineGap: BODY_LINE_GAP,
+    });
+
+  return panelY + panelHeight + 12;
+};
+
+const drawInfoTable = (doc, theme, layout, rows, startY) => {
+  const columnGap = 24;
+  const columnWidth = (layout.contentWidth - columnGap) / 2;
+  const leftX = layout.marginLeft;
+  const rightX = layout.marginLeft + columnWidth + columnGap;
+  let leftY = startY;
+  let rightY = startY;
+
+  rows.left.forEach((field) => {
+    leftY = drawField(doc, theme, { x: leftX, y: leftY, width: columnWidth, ...field });
+  });
+
+  rows.right.forEach((field) => {
+    rightY = drawField(doc, theme, { x: rightX, y: rightY, width: columnWidth, ...field });
+  });
+
+  return Math.max(leftY, rightY);
+};
+
+const drawSystemInfo = (doc, theme, layout, startY, infoFields) => {
+  const infoY = startY + 6;
+  const labelX = layout.marginLeft + 16;
+  const valueX = layout.marginLeft + 180;
+  const valueWidth = layout.contentWidth - 200;
+
+  const heights = infoFields.map((field) => {
+    const height = doc.heightOfString(field.value || "-", { width: valueWidth, lineGap: BODY_LINE_GAP });
+    return Math.max(height + 16, 28);
+  });
+  const totalHeight = heights.reduce((sum, h) => sum + h, 0) + 16;
+
+  doc.save();
+  doc
+    .roundedRect(layout.marginLeft, infoY - 10, layout.contentWidth, totalHeight, 12)
+    .fill(theme.panelBackground)
+    .strokeColor(theme.panelBorder)
+    .lineWidth(1)
+    .stroke();
+  doc.restore();
+
+  let cursor = infoY;
+  infoFields.forEach((field, index) => {
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(TYPOGRAPHY.labelSize)
+      .fillColor(theme.label)
+      .text(field.label, labelX, cursor);
+    doc
+      .font("Helvetica")
+      .fontSize(TYPOGRAPHY.bodySize)
+      .fillColor(theme.value)
+      .text(field.value || "-", valueX, cursor, { width: valueWidth, lineGap: BODY_LINE_GAP });
+    cursor += heights[index];
+  });
+
+  return infoY - 10 + totalHeight + 12;
+};
+
+const drawContinuationNotice = (doc, theme, layout, text = CONTINUATION_NOTICE) => {
+  doc
+    .font("Helvetica-Oblique")
+    .fontSize(TYPOGRAPHY.labelSize)
+    .fillColor(theme.textSecondary)
+    .text(text, layout.marginLeft, layout.pageHeight - layout.marginBottom - 100, {
+      width: layout.contentWidth,
+      align: "center",
+    });
+};
+
+const drawFooterOnAllPages = (doc) => {
+  const range = doc.bufferedPageRange();
+  for (let i = 0; i < range.count; i += 1) {
+    doc.switchToPage(range.start + i);
+    const currentLayout = getLayout(doc);
+    const footerHeight = 120;
+    const footerWidth = currentLayout.contentWidth;
+    const footerX = currentLayout.marginLeft;
+    const footerY = currentLayout.pageHeight - currentLayout.marginBottom - footerHeight;
+    const footerPaddingX = 24;
+    const footerPaddingY = 24;
+    const textWidth = footerWidth - footerPaddingX * 2;
 
     doc.save();
-    doc.roundedRect(marginLeft, headerY, contentWidth, headerHeight, 12).fill(HEADER_BG);
+    doc.rect(footerX, footerY, footerWidth, footerHeight).fill("#0B1120");
+    doc
+      .moveTo(footerX, footerY)
+      .lineTo(footerX + footerWidth, footerY)
+      .lineWidth(1)
+      .strokeColor("rgba(255,255,255,0.08)")
+      .stroke();
     doc.restore();
 
-    // Drop shadow effect
-    doc.save();
-    doc.rect(marginLeft, headerY + headerHeight, contentWidth, 1).fill(HEADER_ACCENT);
-    doc.restore();
-
-    const logoWidth = 110;
-    if (fs.existsSync(LOGO_PATH)) {
-      doc.image(LOGO_PATH, marginLeft + 18, headerY + 20, {
-        fit: [logoWidth, 60],
-        align: "left",
-        valign: "center",
+    let textY = footerY + footerPaddingY;
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(13)
+      .fillColor("#FFFFFF")
+      .text("Myriad Green – Infinite Green Solutions", footerX + footerPaddingX, textY, {
+        width: textWidth,
+        align: "center",
       });
+
+    textY = doc.y + 6;
+    doc
+      .font("Helvetica")
+      .fontSize(12)
+      .fillColor("#FFFFFF")
+      .opacity(0.9)
+      .text(
+        "Website: www.myriadgreen.co.za\nEmail: irrigationsa@gmail.com\nPhone/WhatsApp: +27 81 721 6701",
+        footerX + footerPaddingX,
+        textY,
+        {
+          width: textWidth,
+          align: "center",
+          lineGap: 4,
+        }
+      );
+    doc.opacity(1);
+  }
+};
+
+const drawLineItemsTable = ({ doc, theme, layout, items = [], currency = DEFAULT_CURRENCY }) => {
+  const tableX = layout.marginLeft;
+  const tableWidth = layout.contentWidth;
+  const columns = [
+    { key: "description", label: "Description", width: 0.46, align: "left" },
+    { key: "quantity", label: "Qty", width: 0.12, align: "center" },
+    { key: "unitPrice", label: "Unit Price", width: 0.2, align: "right" },
+    { key: "total", label: "Line Total", width: 0.22, align: "right" },
+  ];
+  const headerHeight = 34;
+  const minRowHeight = 30;
+  const normalizedItems = items.length
+    ? items
+    : [
+        {
+          description: "No line items supplied",
+          quantity: "-",
+          unitPrice: "-",
+          total: "-",
+          placeholder: true,
+        },
+      ];
+
+  let workingLayout = layout;
+
+  const drawHeaderRow = () => {
+    workingLayout = ensureSpace(doc, theme, workingLayout, headerHeight + 12);
+    const headerY = doc.y;
+    doc.save();
+    doc
+      .rect(tableX, headerY, tableWidth, headerHeight)
+      .fillAndStroke(theme.panelBackground, theme.panelBorder);
+    doc.restore();
+
+    let xCursor = tableX + 14;
+    columns.forEach((column) => {
+      const colWidth = tableWidth * column.width - 24;
+      doc
+        .font("Helvetica-Bold")
+        .fontSize(TYPOGRAPHY.labelSize)
+        .fillColor(theme.label)
+        .text(column.label, xCursor, headerY + 9, {
+          width: colWidth,
+          align: column.align,
+          lineGap: BODY_LINE_GAP,
+        });
+      xCursor += tableWidth * column.width;
+    });
+
+    doc.y = headerY + headerHeight;
+  };
+
+  const displayValue = (column, item) => {
+    if (column.key === "description") {
+      return item.description || "–";
+    }
+    if (column.key === "quantity") {
+      return item.quantity !== undefined ? item.quantity : "–";
+    }
+    if (column.key === "unitPrice") {
+      const numeric = Number(item.unitPrice);
+      if (!Number.isFinite(numeric)) {
+        return item.unitPrice || "–";
+      }
+      return formatCurrency(numeric, currency);
+    }
+    if (column.key === "total") {
+      if (item.placeholder) {
+        return item.total;
+      }
+      const explicitTotal = Number(item.total);
+      if (Number.isFinite(explicitTotal)) {
+        return formatCurrency(explicitTotal, currency);
+      }
+      const computed = (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+      return formatCurrency(computed, currency);
+    }
+    return item[column.key] || "–";
+  };
+
+  drawHeaderRow();
+
+  normalizedItems.forEach((item, index) => {
+    const rowTop = doc.y;
+    const columnHeights = columns.map((column) => {
+      const colWidth = tableWidth * column.width - 24;
+      return doc.heightOfString(displayValue(column, item), {
+        width: colWidth,
+        align: column.align,
+        lineGap: BODY_LINE_GAP,
+      });
+    });
+    const rowHeight = Math.max(minRowHeight, Math.max(...columnHeights) + 10);
+    const available = workingLayout.pageHeight - workingLayout.marginBottom - FOOTER_RESERVE - doc.y;
+
+    if (rowHeight > available) {
+      drawContinuationNotice(doc, theme, workingLayout);
+      workingLayout = addPageWithSurface(doc, theme, workingLayout);
+      drawHeaderRow();
     }
 
-    const headerTextX = marginLeft + logoWidth + 44;
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(22)
-      .fillColor(SECTION_HEADING)
-      .text("Booking Summary", headerTextX, headerY + 26, {
-        width: contentWidth - logoWidth - 70,
-      });
+    const fillColor = index % 2 === 0 ? theme.panelBackground : null;
+    if (fillColor) {
+      doc.save();
+      doc.rect(tableX, doc.y, tableWidth, rowHeight).fill(fillColor);
+      doc.restore();
+    }
 
-    doc
-      .font("Helvetica")
-      .fontSize(11)
-      .fillColor(LABEL_COLOR)
-      .text("Myriad Green – Infinite Green Solutions", headerTextX, doc.y + 6, {
-        width: contentWidth - logoWidth - 70,
-      });
-
-    doc
-      .moveTo(marginLeft, headerY + headerHeight + 10)
-      .lineTo(marginLeft + contentWidth, headerY + headerHeight + 10)
-      .lineWidth(2)
-      .strokeColor(ACCENT_COLOR)
-      .stroke();
-
-    let currentY = headerY + headerHeight + 32;
-
-    const renderSectionHeading = (label, y) => {
-      doc
-        .font("Helvetica-Bold")
-        .fontSize(12)
-        .fillColor(SECTION_HEADING)
-        .text(label, marginLeft, y);
-      doc
-        .moveTo(marginLeft, doc.y + 6)
-        .lineTo(marginLeft + 48, doc.y + 6)
-        .lineWidth(2)
-        .strokeColor(ACCENT_COLOR)
-        .stroke();
-      return doc.y + 14;
-    };
-
-    currentY = renderSectionHeading("Booking Details", currentY);
-
-    const columnGap = 24;
-    const columnWidth = (contentWidth - columnGap) / 2;
-    const leftColumnX = marginLeft;
-    const rightColumnX = marginLeft + columnWidth + columnGap;
-    let leftY = currentY + 6;
-    let rightY = currentY + 6;
-
-    const leftFields = [
-      { label: "Name", value: bookingData.name },
-      { label: "Email", value: bookingData.email },
-      { label: "Phone", value: bookingData.phone },
-      { label: "Address", value: bookingData.address },
-    ];
-
-    const rightFields = [
-      { label: "Service", value: bookingData.service },
-      { label: "Preferred Date", value: bookingData.preferredDate },
-      { label: "Preferred Time", value: bookingData.preferredTime },
-      {
-        label: "Total Price",
-        value:
-          bookingData.priceDisplay ||
-          bookingData.totalPrice ||
-          bookingData.basePrice ||
-          "To be confirmed",
-      },
-    ];
-
-    leftFields.forEach((field) => {
-      leftY = drawField(doc, leftColumnX, leftY, field.label, field.value, columnWidth);
-    });
-
-    rightFields.forEach((field) => {
-      rightY = drawField(doc, rightColumnX, rightY, field.label, field.value, columnWidth);
-    });
-
-    currentY = Math.max(leftY, rightY) + 6;
-
-    doc
-      .font("Helvetica-Bold")
-      .fontSize(11)
-      .fillColor(SECTION_HEADING)
-      .text("Notes / Additional Info", marginLeft, currentY);
-
-    const notesValue = formatValue(bookingData.notes);
-    const notesHeight = doc.heightOfString(notesValue, { width: contentWidth - 24 });
-    const notesBoxY = doc.y + 10;
-
-    doc.save();
-    doc
-      .roundedRect(marginLeft, notesBoxY - 6, contentWidth, notesHeight + 24, 10)
-      .fill(MUTED_BG);
-    doc.restore();
-
-    doc
-      .font("Helvetica")
-      .fontSize(10.5)
-      .fillColor(VALUE_COLOR)
-      .text(notesValue, marginLeft + 12, notesBoxY, {
-        width: contentWidth - 24,
-      });
-
-    currentY = notesBoxY + notesHeight + 30;
-
-    currentY = renderSectionHeading("System Info", currentY);
-
-    const infoFields = [
-      {
-        label: "Booking Reference",
-        value: bookingData.bookingId || bookingData.id || "-",
-      },
-      {
-        label: "Created",
-        value: formatDateTime(bookingData.createdAt),
-      },
-      {
-        label: "Source",
-        value: bookingData.source || "website-v3",
-      },
-    ];
-
-    const infoBoxY = currentY + 6;
-    const infoValueWidth = contentWidth - 180;
-    const infoLineHeights = infoFields.map((field) => {
-      const textHeight = doc.heightOfString(field.value || "", { width: infoValueWidth });
-      return Math.max(textHeight + 14, 24);
-    });
-    const infoBoxHeight = infoLineHeights.reduce((sum, h) => sum + h, 0) + 12;
-
-    doc.save();
-    doc
-      .roundedRect(marginLeft, infoBoxY - 8, contentWidth, infoBoxHeight, 10)
-      .fill(MUTED_BG)
-      .strokeColor(HEADER_ACCENT)
-      .lineWidth(1)
-      .stroke();
-    doc.restore();
-
-    let infoY = infoBoxY;
-    infoFields.forEach((field, index) => {
-      doc
-        .font("Helvetica-Bold")
-        .fontSize(9.5)
-        .fillColor(LABEL_COLOR)
-        .text(field.label, marginLeft + 12, infoY);
+    let columnX = tableX + 14;
+    columns.forEach((column) => {
+      const colWidth = tableWidth * column.width - 24;
       doc
         .font("Helvetica")
-        .fontSize(10.5)
-        .fillColor(VALUE_COLOR)
-        .text(field.value, marginLeft + 160, infoY, {
-          width: infoValueWidth,
+        .fontSize(TYPOGRAPHY.bodySize)
+        .fillColor(theme.value)
+        .text(displayValue(column, item), columnX, rowTop + 8, {
+          width: colWidth,
+          align: column.align,
+          lineGap: BODY_LINE_GAP,
         });
-      infoY += infoLineHeights[index];
+      columnX += tableWidth * column.width;
     });
 
-    const footerY = pageHeight - marginBottom - 60;
-
+    doc.y = rowTop + rowHeight;
     doc
-      .font("Helvetica")
-      .fontSize(8.5)
-      .fillColor(FOOTER_PRIMARY)
-      .text(
-        "Myriad Green – Infinite Green Solutions · +27 81 721 6701 · irrigationsa@gmail.com",
-        marginLeft,
-        footerY,
-        {
-          width: contentWidth,
-          align: "center",
-        }
-      );
+      .lineWidth(0.5)
+      .strokeColor(theme.panelBorder)
+      .moveTo(tableX, doc.y)
+      .lineTo(tableX + tableWidth, doc.y)
+      .stroke();
+  });
 
+  return { y: doc.y, layout: workingLayout };
+};
+
+const drawTotalsBlock = (doc, theme, layout, startY, { subtotal, vatAmount, vatLabel, total, currency }) => {
+  layout = ensureSpace(doc, theme, layout, 150);
+  const blockY = drawSectionHeading(doc, theme, layout, "Totals", startY) + 6;
+  const vatRow =
+    vatAmount != null
+      ? { label: vatLabel || "VAT", value: formatCurrency(vatAmount, currency) }
+      : { label: "VAT", value: "VAT Included / Not Applicable" };
+  const rows = [
+    { label: "Subtotal", value: formatCurrency(subtotal || 0, currency) },
+    vatRow,
+    { label: "Grand Total", value: formatCurrency(total || subtotal || 0, currency) },
+  ];
+
+  doc.save();
+  doc
+    .roundedRect(layout.marginLeft, blockY, layout.contentWidth, 140, 12)
+    .fill(theme.panelBackground)
+    .strokeColor(theme.panelBorder)
+    .lineWidth(1)
+    .stroke();
+  doc.restore();
+
+  let cursor = blockY + 16;
+  rows.forEach((row, index) => {
+    const isGrandTotal = index === rows.length - 1;
     doc
-      .font("Helvetica")
-      .fontSize(8)
-      .fillColor(FOOTER_SECONDARY)
-      .text(
-        "Gauteng, South Africa · This booking summary is for your records. Our team will confirm final dates and pricing with you directly.",
-        marginLeft,
-        footerY + 14,
-        {
-          width: contentWidth,
-          align: "center",
-        }
-      );
+      .font(isGrandTotal ? "Helvetica-Bold" : "Helvetica")
+      .fontSize(isGrandTotal ? 12 : 10.5)
+      .fillColor(isGrandTotal ? theme.accent : theme.label)
+      .text(row.label, layout.marginLeft + 16, cursor);
+    doc
+      .font(isGrandTotal ? "Helvetica-Bold" : "Helvetica")
+      .fontSize(isGrandTotal ? 13 : 11)
+      .fillColor(theme.value)
+      .text(row.value, layout.marginLeft + layout.contentWidth / 2, cursor, {
+        width: layout.contentWidth / 2 - 24,
+        align: "right",
+      });
+    cursor += isGrandTotal ? 36 : 28;
+  });
 
-    doc.end();
+  doc.y = blockY + 140 + 12;
+  return layout;
+};
+
+const drawTermsSection = (doc, theme, layout, startY, terms) => {
+  const content = terms && terms.trim().length ? terms : null;
+  if (!content) {
+    return layout;
+  }
+  layout = ensureSpace(doc, theme, layout, 140);
+  let cursor = drawSectionHeading(doc, theme, layout, "Terms & Conditions", startY);
+  cursor = drawPanel(doc, theme, layout, {
+    y: cursor,
+    body: content,
+    minHeight: 100,
+  });
+  doc.y = cursor;
+  return layout;
+};
+
+const drawSignatureBlock = (doc, theme, layout, startY, { clientName, companyContact }) => {
+  layout = ensureSpace(doc, theme, layout, 200);
+  const blockY = drawSectionHeading(doc, theme, layout, "Signatures", startY) + 6;
+  const blockHeight = 150;
+  const columnWidth = (layout.contentWidth - 24) / 2;
+
+  doc.save();
+  doc
+    .roundedRect(layout.marginLeft, blockY, layout.contentWidth, blockHeight, 12)
+    .fill(theme.panelBackground)
+    .strokeColor(theme.panelBorder)
+    .lineWidth(1)
+    .stroke();
+  doc.restore();
+
+  const drawColumn = (x, title, hint) => {
+    const lineSpacing = 32;
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(11)
+      .fillColor(theme.value)
+      .text(title, x, blockY + 16, { width: columnWidth });
+
+    ["Signature", "Name", "Date"].forEach((label, idx) => {
+      const lineY = blockY + 44 + idx * lineSpacing;
+      doc
+        .font("Helvetica")
+        .fontSize(10)
+        .fillColor(theme.label)
+        .text(label, x, lineY - 4);
+      doc
+        .moveTo(x, lineY + 8)
+        .lineTo(x + columnWidth - 16, lineY + 8)
+        .lineWidth(1)
+        .strokeColor(theme.panelBorder)
+        .stroke();
+    });
+
+    if (hint) {
+      doc
+        .font("Helvetica")
+        .fontSize(9)
+        .fillColor(theme.textSecondary)
+        .text(hint, x, blockY + blockHeight - 28, { width: columnWidth });
+    }
+  };
+
+  drawColumn(layout.marginLeft + 12, "Client", clientName ? `(${clientName})` : "");
+  drawColumn(
+    layout.marginLeft + columnWidth + 24,
+    "For Myriad Green",
+    companyContact ? `(${companyContact})` : ""
+  );
+
+  doc.y = blockY + blockHeight + 16;
+  return layout;
+};
+
+const drawPaymentInstructions = (doc, theme, layout, startY, paymentInfo = {}) => {
+  const { bankDetails = {}, paymentInstructions, paymentTerms } = paymentInfo;
+  const body = [
+    paymentTerms ? `Payment terms: ${paymentTerms}` : null,
+    paymentInstructions || null,
+    bankDetails.accountName ? `Account Name: ${bankDetails.accountName}` : null,
+    bankDetails.bankName ? `Bank: ${bankDetails.bankName}` : null,
+    bankDetails.accountNumber ? `Account Number: ${bankDetails.accountNumber}` : null,
+    bankDetails.branchCode ? `Branch Code: ${bankDetails.branchCode}` : null,
+    bankDetails.reference ? `Payment Reference: ${bankDetails.reference}` : null,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  if (!body) {
+    return layout;
+  }
+
+  layout = ensureSpace(doc, theme, layout, 150);
+  let cursor = drawSectionHeading(doc, theme, layout, "Payment Instructions", startY);
+  cursor = drawPanel(doc, theme, layout, {
+    y: cursor,
+    body,
+    minHeight: 100,
+  });
+  doc.y = cursor;
+  return layout;
+};
+
+const renderBookingTemplate = ({ doc, theme, layout, data }) => {
+  const booking = data.booking || {};
+  let cursor = drawSectionHeading(doc, theme, layout, "Booking Details", layout.headerBottom + 28);
+
+  cursor = drawInfoTable(
+    doc,
+    theme,
+    layout,
+    {
+      left: [
+        { label: "Name", value: booking.name },
+        { label: "Email", value: booking.email },
+        { label: "Phone", value: booking.phone },
+        { label: "Address", value: booking.address },
+      ],
+      right: [
+        { label: "Service", value: booking.service },
+        { label: "Preferred Date", value: booking.preferredDate },
+        { label: "Preferred Time", value: booking.preferredTime },
+        {
+          label: "Total Price",
+          value:
+            booking.priceDisplay ||
+            booking.totalPrice ||
+            booking.basePrice ||
+            "To be confirmed",
+        },
+      ],
+    },
+    cursor + 6
+  );
+
+  cursor = drawSectionHeading(doc, theme, layout, "Notes / Additional Info", cursor + 18);
+  cursor = drawPanel(doc, theme, layout, {
+    y: cursor,
+    body: formatValue(booking.notes),
+    minHeight: 110,
+  });
+
+  cursor = drawSectionHeading(doc, theme, layout, "System Info", cursor + 6);
+  cursor = drawSystemInfo(doc, theme, layout, cursor, [
+    { label: "Booking Reference", value: booking.bookingId || booking.id || "-" },
+    { label: "Created", value: formatDateTime(booking.createdAt) },
+    { label: "Source", value: booking.source || "website-v3" },
+  ]);
+
+  return cursor;
+};
+
+const renderQuoteTemplate = (context) => renderCommercialDocument(context, { mode: "quote" });
+const renderInvoiceTemplate = (context) => renderCommercialDocument(context, { mode: "invoice" });
+
+const renderCommercialDocument = ({ doc, theme, layout, data }, { mode }) => {
+  const isQuote = mode === "quote";
+  const payload = isQuote ? data.quote || {} : data.invoice || {};
+  const currency = payload.currency || DEFAULT_CURRENCY;
+  const title = isQuote ? "Quote" : "Tax Invoice";
+
+  layout = ensureSpace(doc, theme, layout, 220);
+  let cursor = drawSectionHeading(doc, theme, layout, `${title} Details`, layout.headerBottom + 24);
+  cursor = drawInfoTable(
+    doc,
+    theme,
+    layout,
+    {
+      left: [
+        { label: "Client", value: payload.clientName || "Client" },
+        { label: "Email", value: payload.clientEmail || "client@example.com" },
+        { label: "Phone", value: payload.clientPhone || "+27 81 721 6701" },
+        { label: "Address", value: payload.clientAddress || "Gauteng" },
+      ],
+      right: [
+        { label: "Service", value: payload.serviceType || payload.project?.serviceType || "Irrigation" },
+        { label: "Location", value: payload.project?.location || payload.location || "Gauteng" },
+        {
+          label: isQuote ? "Quote Number" : "Invoice Number",
+          value: payload.quoteNumber || payload.invoiceNumber || payload.reference || "Pending",
+        },
+        {
+          label: isQuote ? "Issue Date" : "Invoice Date",
+          value: formatDateTime(payload.issueDate || payload.date || new Date()),
+        },
+        {
+          label: isQuote ? "Valid Until" : "Due Date",
+          value: formatDateTime(payload.validUntil || payload.dueDate || new Date(Date.now() + 7 * 86400000)),
+        },
+      ],
+    },
+    cursor + 6
+  );
+
+  if (payload.project?.notes || payload.notes) {
+    layout = ensureSpace(doc, theme, layout, 140);
+    cursor = drawSectionHeading(doc, theme, layout, "Project Notes", cursor + 16);
+    cursor = drawPanel(doc, theme, layout, {
+      y: cursor,
+      body: payload.project?.notes || payload.notes,
+      minHeight: 90,
+    });
+  }
+
+  cursor = drawSectionHeading(doc, theme, layout, "Line Items", cursor + 24);
+  doc.y = cursor + 6;
+  const tableResult = drawLineItemsTable({
+    doc,
+    theme,
+    layout,
+    items: payload.lineItems || [],
+    currency,
+  });
+  layout = tableResult.layout;
+  cursor = tableResult.y + 12;
+
+  const subtotal = payload.subtotal ?? (payload.lineItems || []).reduce((acc, item) => {
+    const explicitTotal = Number(item.total);
+    if (Number.isFinite(explicitTotal)) {
+      return acc + explicitTotal;
+    }
+    return acc + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+  }, 0);
+  const vatAmount = typeof payload.vatAmount === "number" ? payload.vatAmount : null;
+  const vatLabel = payload.vatLabel || "VAT";
+  const total = payload.total ?? (subtotal + (vatAmount || 0));
+  layout = drawTotalsBlock(doc, theme, layout, cursor + 6, {
+    subtotal,
+    vatAmount,
+    vatLabel,
+    total,
+    currency,
+  });
+  cursor = doc.y;
+
+  if (!isQuote) {
+    layout = drawPaymentInstructions(doc, theme, layout, cursor + 6, {
+      paymentTerms: payload.paymentTerms,
+      paymentInstructions: payload.paymentInstructions,
+      bankDetails: payload.bankDetails,
+    });
+    cursor = doc.y;
+  }
+
+  const fallbackTerms = payload.terms || (isQuote ? "This quote is valid for 7 days unless otherwise stated." : "Payment is due according to the terms agreed with Myriad Green.");
+  layout = drawTermsSection(doc, theme, layout, cursor + 6, fallbackTerms);
+  cursor = doc.y;
+
+  layout = drawSignatureBlock(doc, theme, layout, cursor + 12, {
+    clientName: payload.clientName,
+    companyContact: payload.accountManager || "Myriad Green Operations",
+  });
+
+  return layout;
+};
+
+const TEMPLATE_RENDERERS = {
+  [TEMPLATE_TYPES.BOOKING]: renderBookingTemplate,
+  [TEMPLATE_TYPES.QUOTE]: renderQuoteTemplate,
+  [TEMPLATE_TYPES.INVOICE]: renderInvoiceTemplate,
+};
+
+/**
+ * Renders a PDF document based on the provided type and data payloads.
+ * @param {Object} options
+ * @param {"booking"|"quote"|"invoice"} options.type
+ * @param {"light"|"dark"} [options.theme]
+ * @param {Object} [options.booking]
+ * @param {QuotePayload} [options.quote]
+ * @param {InvoicePayload} [options.invoice]
+ * @returns {Promise<Buffer>}
+ */
+async function generatePdfDocument({
+  type = TEMPLATE_TYPES.BOOKING,
+  theme = DEFAULT_THEME,
+  booking = null,
+  quote = null,
+  invoice = null,
+} = {}) {
+  const resolvedTheme = resolveTheme(theme);
+  return createPdfBuffer((doc) => {
+    const baseLayout = getLayout(doc);
+    drawPageBackground(doc, resolvedTheme, baseLayout);
+    drawSurface(doc, resolvedTheme, baseLayout);
+
+    const headerBottom = drawHeader(doc, resolvedTheme, baseLayout, {
+      title:
+        type === TEMPLATE_TYPES.QUOTE
+          ? "Quote"
+          : type === TEMPLATE_TYPES.INVOICE
+            ? "Tax Invoice"
+            : "Booking Summary",
+      subtitle:
+        type === TEMPLATE_TYPES.BOOKING
+          ? "Booking summary prepared for client"
+          : type === TEMPLATE_TYPES.QUOTE
+            ? "Official quotation from Myriad Green"
+            : "Official tax invoice from Myriad Green",
+    });
+
+    const renderer = TEMPLATE_RENDERERS[type] || TEMPLATE_RENDERERS[TEMPLATE_TYPES.BOOKING];
+    renderer({
+      doc,
+      theme: resolvedTheme,
+      layout: { ...baseLayout, headerBottom },
+      data: { booking, quote, invoice },
+    });
+
+    drawFooterOnAllPages(doc);
+  });
+}
+
+function generateBookingPdf(bookingData = {}, options = {}) {
+  const themeOption = typeof options === "string" ? options : options.theme;
+  return generatePdfDocument({
+    type: TEMPLATE_TYPES.BOOKING,
+    theme: themeOption || DEFAULT_THEME,
+    booking: bookingData,
   });
 }
 
 module.exports = {
   generateBookingPdf,
+  generatePdfDocument,
 };
