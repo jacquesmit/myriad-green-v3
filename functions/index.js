@@ -56,22 +56,85 @@ ${message}
     `.trim();
 
     const htmlBody = `
-        <h2>New enquiry from the Myriad Green website</h2>
-        <p><strong>Name:</strong> ${name}</p>
-        <p><strong>Phone:</strong> ${phone}</p>
-        <p><strong>Email:</strong> ${email}</p>
-        <p><strong>Service:</strong> ${service}</p>
-        <p><strong>Message:</strong></p>
-        <p>${(message || "").replace(/\n/g, "<br>")}</p>
-      `;
+      <div style="font-family: Arial, sans-serif; background:#f3f3f3; padding:24px;">
+        <div style="max-width:600px; margin:auto; background:white; padding:24px; border-radius:8px;">
+          
+          <h2 style="color:#3a7d1c; font-size:22px; margin-bottom:16px;">
+            New Contact Request Received
+          </h2>
+
+          <p style="font-size:15px; color:#333; line-height:1.5;">
+            A new message has been submitted through the Myriad Green website.
+          </p>
+
+          <ul style="list-style:none; padding:0; margin:0; font-size:14px; color:#444;">
+            <li><strong>Name:</strong> ${name}</li>
+            <li><strong>Email:</strong> ${email}</li>
+            <li><strong>Phone:</strong> ${phone}</li>
+            <li><strong>Message:</strong><br>${(message || "").replace(/\n/g, "<br>")}</li>
+          </ul>
+
+          <p style="margin-top:24px; font-size:13px; color:#777;">
+            — Myriad Green Website Notification
+          </p>
+
+        </div>
+      </div>
+    `;
 
     const mailOptions = {
       from: `"Myriad Green" <${user}>`,
       to: recipient,
       replyTo: email,
-      subject: `New contact form enquiry – ${service}`,
+      subject: `New Contact Form Submission – ${name}`,
       text: textBody,
+      html: htmlBody,
     };
+
+    const clientHtml = `
+      <div style="background:#eef2ee; padding:30px; font-family:'Segoe UI', Arial, sans-serif;">
+        <div style="
+          max-width:600px;
+          margin:auto;
+          background:white;
+          border-radius:12px;
+          padding:32px;
+          box-shadow:0 4px 20px rgba(0,0,0,0.08);
+        ">
+          <h2 style="color:#3a7d1c; font-size:22px; margin-bottom:20px;">
+            Thank You, ${name}! We Received Your Message
+          </h2>
+
+          <p style="font-size:15px; color:#444; line-height:1.6;">
+            Thank you for contacting Myriad Green. One of our team members will review
+            your message and get back to you shortly.
+          </p>
+
+          <h3 style="font-size:16px; color:#3a7d1c; margin-top:24px;">Your Message Details</h3>
+
+          <div style="
+            background:#f9faf9;
+            padding:18px;
+            border-radius:8px;
+            border:1px solid #dfe9df;
+            margin-bottom:20px;
+          ">
+            <p style="margin:0; font-size:14px; color:#333;"><strong>Name:</strong> ${name}</p>
+            <p style="margin:0; font-size:14px; color:#333;"><strong>Email:</strong> ${email}</p>
+            <p style="margin:0; font-size:14px; color:#333;"><strong>Phone:</strong> ${phone}</p>
+            <p style="margin-top:12px; font-size:14px; color:#333;"><strong>Message:</strong><br>${(message || "").replace(/\n/g, "<br>")}</p>
+          </div>
+
+          <p style="font-size:13px; color:#666;">
+            If you need urgent assistance, feel free to reply directly to this email.
+          </p>
+
+          <p style="font-size:12px; color:#777; margin-top:28px;">
+            — Myriad Green Team
+          </p>
+        </div>
+      </div>
+    `;
 
     try {
       console.log("sendContactEmail: about to send", {
@@ -86,6 +149,14 @@ ${message}
         accepted: info.accepted,
         rejected: info.rejected,
         response: info.response,
+      });
+
+      await transporter.sendMail({
+        from: `"Myriad Green" <${user}>`,
+        to: email,
+        replyTo: user,
+        subject: "Myriad Green – We Received Your Message",
+        html: clientHtml
       });
 
       res.status(200).json({ ok: true });
@@ -171,20 +242,43 @@ exports.createBooking = onRequest(
           `Firestore Document ID: ${docRef.id}`
         ].join("\n");
 
-        const clientText = `Hi ${bookingData.name},
+        const clientHtml = `
+          <div style="font-family: Arial, sans-serif; background:#f7f7f7; padding:24px;">
+            <div style="max-width:600px; margin:auto; background:white; padding:24px; border-radius:8px;">
+              
+              <h2 style="color:#3a7d1c; font-size:22px; margin-bottom:16px; text-align:left;">
+                Thank you, ${bookingData.name} — we’ve received your booking!
+              </h2>
 
-Thank you for booking ${bookingData.service} with Myriad Green. Our team has received your request and will confirm the appointment shortly.
+              <p style="font-size:15px; color:#333; line-height:1.5;">
+                We’ve received your request for <strong>${bookingData.service}</strong>.
+                One of our technicians will contact you shortly to confirm details.
+              </p>
 
-Details we received:
-- Service: ${bookingData.service}
-- Preferred Date: ${bookingData.preferredDate || "Not specified"}
-- Preferred Time: ${bookingData.preferredTime || "Not specified"}
-- Phone: ${bookingData.phone}
-- Email: ${bookingData.email}
+              <h3 style="margin-top:24px; font-size:18px; color:#3a7d1c;">Booking Details</h3>
 
-If any of these details are incorrect, just reply to this email and we will update your booking.
+              <ul style="list-style:none; padding:0; margin:0; font-size:14px; color:#444;">
+                <li><strong>Name:</strong> ${bookingData.name}</li>
+                <li><strong>Email:</strong> ${bookingData.email}</li>
+                <li><strong>Phone:</strong> ${bookingData.phone}</li>
+                <li><strong>Service:</strong> ${bookingData.service}</li>
+                <li><strong>Preferred Date:</strong> ${bookingData.preferredDate || "Not specified"}</li>
+                <li><strong>Preferred Time:</strong> ${bookingData.preferredTime || "Not specified"}</li>
+                <li><strong>Address:</strong> ${bookingData.address || "Not specified"}</li>
+                <li><strong>Notes:</strong> ${bookingData.notes || "None"}</li>
+              </ul>
 
-The Myriad Green Team`;
+              <p style="margin-top:24px; font-size:14px; color:#555;">
+                If anything changes or you need immediate assistance, reply directly to this email.
+              </p>
+
+              <p style="margin-top:16px; font-size:13px; color:#777;">
+                — Myriad Green Team
+              </p>
+
+            </div>
+          </div>
+        `;
 
         try {
           await transporter.sendMail({
@@ -197,9 +291,9 @@ The Myriad Green Team`;
           await transporter.sendMail({
             from: `"Myriad Green" <${user}>`,
             to: bookingData.email,
-            replyTo: internalRecipient,
-            subject: `Myriad Green booking received – ${bookingData.service}`,
-            text: clientText
+            replyTo: user,
+            subject: "Myriad Green – Booking Received",
+            html: clientHtml
           });
         } catch (emailErr) {
           console.error("createBooking email error:", emailErr);
