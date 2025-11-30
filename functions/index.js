@@ -1,8 +1,10 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
+const logger = require("firebase-functions/logger");
 const nodemailer = require("nodemailer");
 const path = require("path");
+const { buildEmailTemplate } = require("./email/sharedTemplate");
 const { generateBookingPdf } = require("./pdf");
 
 const GMAIL_USER = defineSecret("GMAIL_USER");
@@ -101,18 +103,19 @@ exports.sendContactEmail = onRequest(
       return;
     }
 
-    const { name, phone, email, service, message } = req.body || {};
-    const user = GMAIL_USER.value();
-    const pass = GMAIL_PASS.value();
-    const recipient = GMAIL_TO.value() || user;
-    if (![name, phone, email, service, message].every((value) => typeof value === "string" && value.trim().length)) {
+    const { name, email: contactEmail, phone, subject, message } = req.body || {};
+    if (![contactEmail, message].every((value) => typeof value === "string" && value.trim().length)) {
       res.status(400).json({ error: "Missing required fields" });
       return;
     }
 
+    const user = GMAIL_USER.value();
+    const pass = GMAIL_PASS.value();
+    const recipient = GMAIL_TO.value() || user;
+
     if (!user || !pass) {
-      console.error("sendContactEmail error: missing Gmail credentials");
-      res.status(500).json({ ok: false, error: "Email failed to send" });
+      logger.error("sendContactEmail error: missing Gmail credentials");
+      res.status(500).json({ error: "Internal error" });
       return;
     }
 
@@ -123,125 +126,88 @@ exports.sendContactEmail = onRequest(
       auth: { user, pass }
     });
 
-    const textBody = `
-New enquiry from the Myriad Green website:
+    const contactName = displayValue(name, "Not provided");
+    const greetingName = displayValue(name, "there");
+    const safeSubject = displayValue(subject, "General enquiry");
+    const safePhone = displayValue(phone, "Not provided");
+    const safeMessage = displayValue(message, "No message provided.");
 
-Name: ${name}
-Phone: ${phone}
-Email: ${email}
-Service: ${service}
-
-Message:
-${message}
-    `.trim();
-
-    const clientTextBody = `
-Hi ${name || "there"},
-
-Thank you for reaching out to Myriad Green about ${service || "your enquiry"}. Our team has your message and will be in touch shortly.
-
-Message summary:
-${message}
-
-If you need urgent assistance, call +27 81 72 16701.
-
-— Myriad Green
-    `.trim();
-
-    const mailOptions = {
-      from: `"Myriad Green" <${user}>`,
-      to: recipient,
-      replyTo: email,
-      subject: `New Contact Form Submission – ${name}`,
-      text: textBody,
-    };
-
-    const safeService = displayValue(service, "General enquiry");
-    const safeName = displayValue(name, "there");
-
-    const adminBody = `
-      <h1 style="margin:0 0 12px; font-size:20px; color:#0f172a;">New contact request</h1>
-      <p style="margin:0 0 16px; font-size:13px; color:#4b5563;">
-        A new message has been submitted via the Myriad Green website.
-      </p>
-      ${buildDetailTable([
-        { label: "Name", value: name },
-        { label: "Email", value: email },
-        { label: "Phone", value: phone || "Not provided" },
-        { label: "Service", value: safeService },
-      ])}
-      <h3 style="margin:20px 0 8px; font-size:13px; color:#16a34a;">Message</h3>
-      <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:16px; font-size:12px; color:#0f172a;">
-        ${htmlMultiline(message, "No message provided.")}
-      </div>
-      <p style="margin:20px 0 0; font-size:11px; color:#6b7280;">Submitted ${new Date().toLocaleString("en-ZA")}</p>
-    `;
-
-    const contactAdminHtml = buildEmailShell({
-      headerRightTop: "Website contact",
-      headerRightBottom: `Service: ${safeService}`,
-      bodyHtml: adminBody,
+    const adminHtml = buildEmailTemplate({
+      title: "New Contact Form Submission",
+      intro: "A new enquiry has just arrived via the Myriad Green website.",
+      rows: [
+        { label: "Name", value: contactName },
+        { label: "Email", value: contactEmail },
+        { label: "Phone", value: safePhone },
+        { label: "Subject", value: safeSubject },
+        { label: "Message", value: safeMessage },
+      ],
+      footerNote: "Log this enquiry in your CRM and respond as soon as possible.",
     });
 
-    const clientBody = `
-      <h1 style="margin:0 0 12px; font-size:20px; color:#0f172a;">We received your message</h1>
-      <p style="margin:0 0 16px; font-size:13px; color:#4b5563;">
-        Hi ${htmlValue(safeName, "there")},<br/>
-        Thank you for contacting Myriad Green about <strong style="color:#16a34a;">${htmlValue(safeService)}</strong>. One of our team members will get back to you as soon as possible.
-      </p>
-      ${buildDetailTable([
-        { label: "Email", value: email },
-        { label: "Phone", value: phone || "Not provided" },
-        { label: "Service", value: safeService },
-      ])}
-      <h3 style="margin:20px 0 8px; font-size:13px; color:#16a34a;">Your message</h3>
-      <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:16px; font-size:12px; color:#0f172a;">
-        ${htmlMultiline(message, "No message provided.")}
-      </div>
-      <p style="margin:20px 0 0; font-size:12px; color:#4b5563;">
-        If anything changes, reply to this email or call <strong>+27 81 72 16701</strong>.
-      </p>
-    `;
+    const clientIntro = [
+      `Hi ${greetingName === "there" ? "there" : greetingName},`,
+      "Thank you for contacting Myriad Green. Our team has received your enquiry and will follow up shortly.",
+    ].join("\n\n");
 
-    const contactClientHtml = buildEmailShell({
-      headerRightTop: "We received your message",
-      headerRightBottom: "Myriad Green Support",
-      bodyHtml: clientBody,
+    const clientHtml = buildEmailTemplate({
+      title: "We've Received Your Message",
+      intro: clientIntro,
+      rows: [
+        { label: "Subject", value: safeSubject },
+        { label: "Message", value: safeMessage },
+      ],
+      footerNote: "We will reply as soon as possible. You can reply directly to this email if you need urgent help.",
     });
+
+    const adminText = [
+      "New enquiry from the Myriad Green website:",
+      `Name: ${contactName}`,
+      `Email: ${contactEmail}`,
+      `Phone: ${safePhone}`,
+      `Subject: ${safeSubject}`,
+      "",
+      "Message:",
+      safeMessage,
+    ].join("\n");
+
+    const clientText = [
+      `Hi ${greetingName === "there" ? "there" : greetingName},`,
+      "Thanks for contacting Myriad Green. We have your message and will reply shortly.",
+      "",
+      `Subject: ${safeSubject}`,
+      "Message:",
+      safeMessage,
+      "",
+      "You can reply to this email if you need urgent help.",
+    ].join("\n");
 
     try {
-      console.log("sendContactEmail: about to send", {
-        to: recipient,
-        from: user,
-      });
-
-      const info = await transporter.sendMail({
-        ...mailOptions,
-        html: contactAdminHtml,
-        attachments: [buildLogoAttachment()],
-      });
-
-      console.log("sendContactEmail: sent", {
-        messageId: info.messageId,
-        accepted: info.accepted,
-        rejected: info.rejected,
-        response: info.response,
-      });
-
-      await transporter.sendMail({
-        from: `"Myriad Green" <${user}>`,
-        to: email,
-        replyTo: user,
-        subject: "Myriad Green – We Received Your Message",
-        text: clientTextBody,
-        html: contactClientHtml,
-        attachments: [buildLogoAttachment()],
-      });
+      await Promise.all([
+        transporter.sendMail({
+          from: `"Myriad Green" <${user}>`,
+          to: recipient,
+          replyTo: contactEmail,
+          subject: `New Contact Form Submission – ${safeSubject}`,
+          text: adminText,
+          html: adminHtml,
+          attachments: [buildLogoAttachment()],
+        }),
+        transporter.sendMail({
+          from: `"Myriad Green" <${user}>`,
+          to: contactEmail,
+          replyTo: user,
+          subject: "Myriad Green – We've Received Your Message",
+          text: clientText,
+          html: clientHtml,
+          attachments: [buildLogoAttachment()],
+        }),
+      ]);
 
       res.status(200).json({ ok: true });
     } catch (error) {
-      console.error("sendContactEmail error:", error);
-      res.status(500).json({ ok: false, error: "Email failed to send" });
+      logger.error("sendContactEmail error", error);
+      res.status(500).json({ error: "Internal error" });
     }
   }
 );
@@ -373,55 +339,27 @@ exports.createBooking = onRequest(
         const serviceName = displayValue(bookingData.service, "General Consultation");
         const greetingName = displayValue(bookingData.name, "there");
 
-        const twoColumnLayout = (leftRows, rightRows) => `
-          <table width="100%" cellspacing="0" cellpadding="0" style="margin:16px 0 8px;">
-            <tr>
-              <td style="width:50%; padding-right:12px; vertical-align:top;">
-                ${buildDetailTable(leftRows)}
-              </td>
-              <td style="width:50%; padding-left:12px; vertical-align:top;">
-                ${buildDetailTable(rightRows)}
-              </td>
-            </tr>
-          </table>
-        `;
-
-        const adminBody = `
-          <h1 style="margin:0 0 12px; font-size:20px; color:#0f172a;">New booking captured</h1>
-          <p style="margin:0 0 16px; font-size:13px; color:#4b5563;">
-            A new booking was submitted via the Myriad Green website. Review the summary below and continue the scheduling workflow.
-          </p>
-          ${twoColumnLayout(
-            [
-              { label: "Name", value: bookingData.name },
-              { label: "Email", value: bookingData.email },
-              { label: "Phone", value: bookingData.phone },
-              { label: "Address", value: bookingData.address },
-            ],
-            [
-              { label: "Service", value: serviceName },
-              { label: "Preferred Date", value: bookingData.preferredDate || "Not provided" },
-              { label: "Preferred Time", value: bookingData.preferredTime || "Not provided" },
-              { label: "Total Price", value: priceDisplayValue },
-            ]
-          )}
-          <h3 style="margin:20px 0 8px; font-size:13px; color:#16a34a;">Notes</h3>
-          <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:16px; font-size:12px; color:#0f172a;">
-            ${htmlMultiline(bookingData.notes, "No additional notes provided.")}
-          </div>
-          <h3 style="margin:24px 0 8px; font-size:13px; color:#16a34a;">System info</h3>
-          ${buildDetailTable([
+        const adminHtml = buildEmailTemplate({
+          title: "New booking captured",
+          intro: [
+            "A new booking was submitted via the Myriad Green website.",
+            "Review the summary below and continue the scheduling workflow."
+          ].join("\n\n"),
+          rows: [
+            { label: "Name", value: bookingData.name },
+            { label: "Email", value: bookingData.email },
+            { label: "Phone", value: bookingData.phone },
+            { label: "Address", value: bookingData.address || "Not provided" },
+            { label: "Service", value: serviceName },
+            { label: "Preferred Date", value: bookingData.preferredDate || "Not provided" },
+            { label: "Preferred Time", value: bookingData.preferredTime || "Not provided" },
+            { label: "Total Price", value: priceDisplayValue },
+            { label: "Notes", value: bookingData.notes || "No additional notes provided." },
             { label: "Booking Reference", value: bookingData.bookingId || docRef.id || "-" },
             { label: "Source", value: bookingData.source || "website-v3" },
             { label: "Submitted", value: new Date().toLocaleString("en-ZA") },
-          ])}
-          <p style="margin:20px 0 0; font-size:12px; color:#4b5563;">The detailed PDF summary is attached to this email.</p>
-        `;
-
-        const adminHtml = buildEmailShell({
-          headerRightTop: "Internal notification",
-          headerRightBottom: `Service: ${serviceName}`,
-          bodyHtml: adminBody,
+          ],
+          footerNote: "The detailed PDF summary is attached to this email.",
         });
 
         const clientText = [
@@ -436,39 +374,25 @@ exports.createBooking = onRequest(
           "If you need to make changes, reply to this email or call +27 81 72 16701.",
         ].join("\n");
 
-        const clientBody = `
-          <h1 style="margin:0 0 12px; font-size:20px; color:#0f172a;">We’ve received your booking</h1>
-          <p style="margin:0 0 16px; font-size:13px; color:#4b5563;">
-            Hi ${htmlValue(greetingName, "there")},<br/>
-            Thank you for booking <strong style="color:#16a34a;">${htmlValue(serviceName)}</strong> with Myriad Green. One of our technicians will reach out shortly to confirm the appointment details and finalize pricing.
-          </p>
-          ${twoColumnLayout(
-            [
-              { label: "Name", value: bookingData.name },
-              { label: "Email", value: bookingData.email },
-              { label: "Phone", value: bookingData.phone },
-              { label: "Address", value: bookingData.address || "To be confirmed" },
-            ],
-            [
-              { label: "Service", value: serviceName },
-              { label: "Preferred Date", value: bookingData.preferredDate || "To be confirmed" },
-              { label: "Preferred Time", value: bookingData.preferredTime || "To be confirmed" },
-              { label: "Total Price", value: priceDisplayValue },
-            ]
-          )}
-          <h3 style="margin:24px 0 8px; font-size:13px; color:#16a34a;">Notes</h3>
-          <div style="background:#f8fafc; border:1px solid #e2e8f0; border-radius:12px; padding:16px; font-size:12px; color:#0f172a;">
-            ${htmlMultiline(bookingData.notes, "No additional notes were provided.")}
-          </div>
-          <p style="margin:20px 0 0; font-size:12px; color:#4b5563;">
-            We’ve attached a PDF summary for your records. If anything looks incorrect, reply to this email or contact us on <strong>+27 81 72 16701</strong>.
-          </p>
-        `;
-
-        const clientHtml = buildEmailShell({
-          headerRightTop: "Booking received",
-          headerRightBottom: `Reference: ${displayValue(bookingData.bookingId || docRef.id || "-")}`,
-          bodyHtml: clientBody,
+        const clientHtml = buildEmailTemplate({
+          title: "We’ve received your booking",
+          intro: [
+            `Hi ${greetingName},`,
+            `Thank you for booking ${serviceName} with Myriad Green. One of our technicians will reach out shortly to confirm the appointment details and finalize pricing.`
+          ].join("\n\n"),
+          rows: [
+            { label: "Name", value: bookingData.name },
+            { label: "Email", value: bookingData.email },
+            { label: "Phone", value: bookingData.phone },
+            { label: "Address", value: bookingData.address || "To be confirmed" },
+            { label: "Service", value: serviceName },
+            { label: "Preferred Date", value: bookingData.preferredDate || "To be confirmed" },
+            { label: "Preferred Time", value: bookingData.preferredTime || "To be confirmed" },
+            { label: "Total Price", value: priceDisplayValue },
+            { label: "Notes", value: bookingData.notes || "No additional notes were provided." },
+            { label: "Reference", value: bookingData.bookingId || docRef.id || "-" },
+          ],
+          footerNote: "We’ve attached a PDF summary for your records. If anything looks incorrect, reply to this email or contact us on +27 81 72 16701.",
         });
 
         const buildBookingAttachments = () => {

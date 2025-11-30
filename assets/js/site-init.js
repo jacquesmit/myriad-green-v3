@@ -127,11 +127,12 @@ import { sendContactEmail } from './email-handler.js';
 
       updateStatus('Sending your message...', 'info');
 
+      const subjectValue = (data.get('subject') || data.get('service') || '').toString().trim();
       const payload = {
         name: data.get('name'),
         phone: data.get('phone'),
         email: data.get('email'),
-        service: data.get('service'),
+        subject: subjectValue || 'General enquiry',
         message: data.get('message')
       };
 
