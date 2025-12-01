@@ -5,7 +5,7 @@ const logger = require("firebase-functions/logger");
 const nodemailer = require("nodemailer");
 const path = require("path");
 const { buildEmailTemplate } = require("./email/sharedTemplate");
-const { generateBookingPdf } = require("./pdf");
+const { generateBookingPdf, generateBookingPdfV2 } = require("./pdf");
 
 const GMAIL_USER = defineSecret("GMAIL_USER");
 const GMAIL_PASS = defineSecret("GMAIL_PASS");
@@ -287,7 +287,7 @@ exports.createBooking = onRequest(
 
       let pdfBuffer = null;
       try {
-        pdfBuffer = await generateBookingPdf(bookingData);
+        pdfBuffer = await generateBookingPdfV2(bookingData);
       } catch (pdfErr) {
         console.error("createBooking pdf generation error:", pdfErr);
       }

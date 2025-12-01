@@ -752,6 +752,235 @@ const drawPaymentInstructions = (doc, theme, layout, startY, paymentInfo = {}) =
   return layout;
 };
 
+const renderV2SectionDivider = (doc, theme, layout) => {
+  doc
+    .moveTo(layout.marginLeft, doc.y)
+    .lineTo(layout.marginLeft + layout.contentWidth, doc.y)
+    .lineWidth(0.6)
+    .strokeColor(theme.panelBorder)
+    .stroke();
+  doc.moveDown(0.8);
+};
+
+const renderV2Section = (doc, theme, layout, { title, estimate = 140, body, divider = true }) => {
+  const nextLayout = ensureSpace(doc, theme, layout, estimate);
+  const headingY = doc.y;
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(15)
+    .fillColor(theme.textPrimary)
+    .text(title, nextLayout.marginLeft, headingY, {
+      width: nextLayout.contentWidth,
+      lineGap: BODY_LINE_GAP,
+    });
+  doc
+    .moveTo(nextLayout.marginLeft, doc.y + 4)
+    .lineTo(nextLayout.marginLeft + 80, doc.y + 4)
+    .lineWidth(2)
+    .strokeColor(theme.accent)
+    .stroke();
+  doc.moveDown(0.8);
+
+  if (typeof body === "function") {
+    body(nextLayout);
+  }
+
+  doc.moveDown(0.8);
+  if (divider) {
+    renderV2SectionDivider(doc, theme, nextLayout);
+  }
+  doc.moveDown(0.4);
+  return nextLayout;
+};
+
+const renderV2KeyValueList = (doc, theme, layout, entries = []) => {
+  entries.forEach(({ label, value }) => {
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(12)
+      .fillColor(theme.label)
+      .text(`${label}: `, layout.marginLeft, doc.y, {
+        continued: true,
+        width: layout.contentWidth,
+      });
+    doc
+      .font("Helvetica")
+      .fontSize(12)
+      .fillColor(theme.value)
+      .text(formatValue(value), { continued: false, width: layout.contentWidth, lineGap: BODY_LINE_GAP });
+    doc.moveDown(0.1);
+  });
+};
+
+const renderV2NotesBlock = (doc, theme, layout, notes) => {
+  doc.save();
+  doc
+    .roundedRect(layout.marginLeft, doc.y - 4, layout.contentWidth, 90, 12)
+    .fill(theme.panelBackground)
+    .strokeColor(theme.panelBorder)
+    .lineWidth(1)
+    .stroke();
+  doc.restore();
+  doc
+    .font("Helvetica")
+    .fontSize(12)
+    .fillColor(theme.value)
+    .text(formatValue(notes), layout.marginLeft + 14, doc.y + 12, {
+      width: layout.contentWidth - 28,
+      lineGap: BODY_LINE_GAP,
+    });
+  doc.y += 70;
+};
+
+const renderV2SignatureBlock = (doc, theme, layout, booking) => {
+  const blockHeight = 160;
+  doc.save();
+  doc
+    .roundedRect(layout.marginLeft, doc.y, layout.contentWidth, blockHeight, 12)
+    .fill(theme.panelBackground)
+    .strokeColor(theme.panelBorder)
+    .lineWidth(1)
+    .stroke();
+  doc.restore();
+
+  const columnWidth = (layout.contentWidth - 32) / 2;
+  const startY = doc.y + 16;
+
+  const drawSignatureColumn = (x, title, lines) => {
+    doc
+      .font("Helvetica-Bold")
+      .fontSize(12)
+      .fillColor(theme.textPrimary)
+      .text(title, x, startY, { width: columnWidth });
+    doc
+      .font("Helvetica")
+      .fontSize(11)
+      .fillColor(theme.value)
+      .text(lines.join("\n"), x, doc.y + 6, {
+        width: columnWidth,
+        lineGap: BODY_LINE_GAP + 2,
+      });
+  };
+
+  drawSignatureColumn(layout.marginLeft + 16, "Client", [
+    `Name: ${formatValue(booking.name)}`,
+    "Signature: ________________________________",
+    "Date: _____________________",
+  ]);
+
+  drawSignatureColumn(layout.marginLeft + columnWidth + 32, "Myriad Green", [
+    `Representative: ${formatValue(booking.accountManager || "Myriad Green Operations")}`,
+    "Signature: ________________________________",
+    "Date: _____________________",
+  ]);
+
+  doc.y += blockHeight + 12;
+};
+
+const renderBookingHeroV2 = (doc, theme, layout, booking) => {
+  const heroHeight = 150;
+  const heroX = layout.marginLeft;
+  const heroY = layout.marginTop;
+  doc.save();
+  doc
+    .roundedRect(heroX, heroY, layout.contentWidth, heroHeight, 16)
+    .fillAndStroke(theme.headerBackground, theme.headerBorder);
+  doc
+    .rect(heroX, heroY, layout.contentWidth, 6)
+    .fill(theme.accent);
+  doc.restore();
+
+  const textWidth = layout.contentWidth - 200;
+  const contentX = heroX + 28;
+  const contentY = heroY + 24;
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(22)
+    .fillColor(theme.textPrimary)
+    .text("Booking Summary", contentX, contentY, { width: textWidth });
+  doc
+    .font("Helvetica")
+    .fontSize(12)
+    .fillColor(theme.textSecondary)
+    .text(`Reference: ${formatValue(booking.bookingId || booking.id || "Pending")}`, contentX, doc.y + 6, {
+      width: textWidth,
+    });
+  doc
+    .text(`Prepared: ${formatDateTime(booking.createdAt)}`, contentX, doc.y + 4, {
+      width: textWidth,
+    })
+    .text(`Service: ${formatValue(booking.service)}`, contentX, doc.y + 4, { width: textWidth })
+    .text(`Client: ${formatValue(booking.name)}`, contentX, doc.y + 4, { width: textWidth });
+
+  if (fs.existsSync(LOGO_PATH)) {
+    doc.image(LOGO_PATH, heroX + layout.contentWidth - 150, heroY + 26, {
+      fit: [110, 60],
+      align: "right",
+    });
+  }
+
+  return heroY + heroHeight + 24;
+};
+
+const renderBookingTemplateV2 = ({ doc, theme, layout, booking }) => {
+  const heroBottom = renderBookingHeroV2(doc, theme, layout, booking);
+  doc.y = heroBottom;
+
+  let workingLayout = { ...layout };
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Client Details",
+    estimate: 180,
+    body: (currentLayout) =>
+      renderV2KeyValueList(doc, theme, currentLayout, [
+        { label: "Name", value: booking.name },
+        { label: "Email", value: booking.email },
+        { label: "Phone", value: booking.phone },
+        { label: "Address", value: booking.address },
+      ]),
+  });
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Booking Details",
+    estimate: 180,
+    body: (currentLayout) =>
+      renderV2KeyValueList(doc, theme, currentLayout, [
+        { label: "Service", value: booking.service },
+        { label: "Preferred Date", value: booking.preferredDate },
+        { label: "Preferred Time", value: booking.preferredTime },
+        { label: "Location", value: booking.location || booking.address },
+      ]),
+  });
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Pricing",
+    estimate: 180,
+    body: (currentLayout) => {
+      const priceSummary = [
+        { label: "Quoted Amount", value: booking.priceDisplay || booking.totalPrice || booking.basePrice },
+        { label: "Deposit Due", value: booking.depositDue },
+        { label: "Balance Outstanding", value: booking.balanceDue || booking.outstanding },
+        { label: "Notes", value: booking.pricingNotes || "Awaiting confirmation" },
+      ];
+      renderV2KeyValueList(doc, theme, currentLayout, priceSummary);
+    },
+  });
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Notes",
+    estimate: 200,
+    body: (currentLayout) => renderV2NotesBlock(doc, theme, currentLayout, booking.notes),
+  });
+
+  renderV2Section(doc, theme, workingLayout, {
+    title: "Signatures",
+    estimate: 220,
+    divider: false,
+    body: (currentLayout) => renderV2SignatureBlock(doc, theme, currentLayout, booking),
+  });
+};
+
 const renderBookingTemplate = ({ doc, theme, layout, data }) => {
   const booking = data.booking || {};
   let cursor = drawSectionHeading(doc, theme, layout, "Booking Details", layout.headerBottom + 28);
@@ -970,7 +1199,25 @@ function generateBookingPdf(bookingData = {}, options = {}) {
   });
 }
 
+function generateBookingPdfV2(bookingData = {}, options = {}) {
+  const themeOption = typeof options === "string" ? options : options.theme;
+  const resolvedTheme = resolveTheme(themeOption || DEFAULT_THEME);
+  return createPdfBuffer((doc) => {
+    const baseLayout = getLayout(doc);
+    drawPageBackground(doc, resolvedTheme, baseLayout);
+    drawSurface(doc, resolvedTheme, baseLayout);
+    renderBookingTemplateV2({
+      doc,
+      theme: resolvedTheme,
+      layout: baseLayout,
+      booking: bookingData,
+    });
+    drawFooterOnAllPages(doc);
+  });
+}
+
 module.exports = {
   generateBookingPdf,
+  generateBookingPdfV2,
   generatePdfDocument,
 };
