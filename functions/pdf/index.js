@@ -923,6 +923,65 @@ const renderBookingHeroV2 = (doc, theme, layout, booking) => {
   return heroY + heroHeight + 24;
 };
 
+const formatLabel = (input = "") =>
+  input
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .split(" ")
+    .filter(Boolean)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+
+const renderQuoteHeroV1 = (doc, theme, layout, quote) => {
+  const heroHeight = 150;
+  const heroX = layout.marginLeft;
+  const heroY = layout.marginTop;
+  doc.save();
+  doc
+    .roundedRect(heroX, heroY, layout.contentWidth, heroHeight, 16)
+    .fillAndStroke(theme.headerBackground, theme.headerBorder);
+  doc
+    .rect(heroX, heroY, layout.contentWidth, 6)
+    .fill(theme.accent);
+  doc.restore();
+
+  const textWidth = layout.contentWidth - 200;
+  const contentX = heroX + 28;
+  const contentY = heroY + 24;
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(22)
+    .fillColor(theme.textPrimary)
+    .text("Quote Summary", contentX, contentY, { width: textWidth });
+  doc
+    .font("Helvetica")
+    .fontSize(12)
+    .fillColor(theme.textSecondary)
+    .text(`Quote Ref: ${formatValue(quote.reference || quote.quoteNumber || "Pending")}`, contentX, doc.y + 6, {
+      width: textWidth,
+    });
+  doc
+    .text(`Prepared: ${formatDateTime(quote.preparedAt || new Date())}`, contentX, doc.y + 4, {
+      width: textWidth,
+    })
+    .text(`Service: ${formatValue(quote.serviceName || quote.serviceType)}`, contentX, doc.y + 4, {
+      width: textWidth,
+    })
+    .text(`Client: ${formatValue(quote.clientName || quote.client?.name)}`, contentX, doc.y + 4, {
+      width: textWidth,
+    });
+
+  if (fs.existsSync(LOGO_PATH)) {
+    doc.image(LOGO_PATH, heroX + layout.contentWidth - 150, heroY + 26, {
+      fit: [110, 60],
+      align: "right",
+    });
+  }
+
+  return heroY + heroHeight + 24;
+};
+
 const renderBookingTemplateV2 = ({ doc, theme, layout, booking }) => {
   const heroBottom = renderBookingHeroV2(doc, theme, layout, booking);
   doc.y = heroBottom;
@@ -978,6 +1037,122 @@ const renderBookingTemplateV2 = ({ doc, theme, layout, booking }) => {
     estimate: 220,
     divider: false,
     body: (currentLayout) => renderV2SignatureBlock(doc, theme, currentLayout, booking),
+  });
+};
+
+const collectQuoteDetailEntries = (quote) => {
+  const entries = [
+    { label: "Service Type", value: quote.serviceType || quote.serviceName },
+    { label: "Property Type", value: quote.propertyType },
+    { label: "Suburb", value: quote.suburb },
+    { label: "City", value: quote.city },
+    { label: "Province", value: quote.province },
+    { label: "Site Address", value: quote.siteAddress || quote.address },
+  ].filter((entry) => entry.value);
+
+  const additionalSource = quote.details || quote.additionalDetails || quote.metadata;
+  if (additionalSource && typeof additionalSource === "object") {
+    Object.entries(additionalSource).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") {
+        return;
+      }
+      entries.push({ label: formatLabel(key), value });
+    });
+  }
+
+  return entries;
+};
+
+const renderQuoteLineItemsBlock = (doc, theme, layout, quote) => {
+  const items = Array.isArray(quote.items) ? quote.items : [];
+  const currency = quote.currency || DEFAULT_CURRENCY;
+  const tableResult = drawLineItemsTable({
+    doc,
+    theme,
+    layout,
+    items,
+    currency,
+  });
+
+  const subtotalFromItems = items.reduce((sum, item) => {
+    const explicit = Number(item.total);
+    if (Number.isFinite(explicit)) {
+      return sum + explicit;
+    }
+    return sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+  }, 0);
+
+  const subtotal = quote.subtotal ?? subtotalFromItems;
+  const vatAmount = quote.vatAmount != null ? Number(quote.vatAmount) : null;
+  const totalAmount = quote.totalAmount ?? (subtotal + (vatAmount || 0));
+
+  doc.y = tableResult.y + 12;
+  drawTotalsBlock(doc, theme, layout, doc.y, {
+    subtotal,
+    vatAmount,
+    vatLabel: quote.vatLabel || "VAT",
+    total: totalAmount,
+    currency,
+  });
+  doc.moveDown(0.6);
+};
+
+const renderQuoteTemplateV1 = ({ doc, theme, layout, quote }) => {
+  const heroBottom = renderQuoteHeroV1(doc, theme, layout, quote);
+  doc.y = heroBottom;
+
+  let workingLayout = { ...layout };
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Client Details",
+    estimate: 180,
+    body: (currentLayout) =>
+      renderV2KeyValueList(doc, theme, currentLayout, [
+        { label: "Name", value: quote.clientName || quote.client?.name },
+        { label: "Email", value: quote.clientEmail || quote.client?.email },
+        { label: "Phone", value: quote.clientPhone || quote.client?.phone },
+        { label: "Address", value: quote.clientAddress || quote.siteAddress || quote.address },
+      ]),
+  });
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Quote Details",
+    estimate: 220,
+    body: (currentLayout) => {
+      const entries = collectQuoteDetailEntries(quote);
+      if (entries.length) {
+        renderV2KeyValueList(doc, theme, currentLayout, entries);
+      } else {
+        doc
+          .font("Helvetica")
+          .fontSize(12)
+          .fillColor(theme.textSecondary)
+          .text("No additional details provided.", currentLayout.marginLeft, doc.y, {
+            width: currentLayout.contentWidth,
+          });
+      }
+    },
+  });
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Line Items",
+    estimate: 260,
+    body: (currentLayout) => renderQuoteLineItemsBlock(doc, theme, currentLayout, quote),
+  });
+
+  if (quote.notes) {
+    workingLayout = renderV2Section(doc, theme, workingLayout, {
+      title: "Notes",
+      estimate: 200,
+      body: (currentLayout) => renderV2NotesBlock(doc, theme, currentLayout, quote.notes),
+    });
+  }
+
+  renderV2Section(doc, theme, workingLayout, {
+    title: "Signatures",
+    estimate: 220,
+    divider: false,
+    body: (currentLayout) => renderV2SignatureBlock(doc, theme, currentLayout, quote),
   });
 };
 
@@ -1216,8 +1391,26 @@ function generateBookingPdfV2(bookingData = {}, options = {}) {
   });
 }
 
+function generateQuotePdfV1(quoteData = {}, options = {}) {
+  const themeOption = typeof options === "string" ? options : options.theme;
+  const resolvedTheme = resolveTheme(themeOption || DEFAULT_THEME);
+  return createPdfBuffer((doc) => {
+    const baseLayout = getLayout(doc);
+    drawPageBackground(doc, resolvedTheme, baseLayout);
+    drawSurface(doc, resolvedTheme, baseLayout);
+    renderQuoteTemplateV1({
+      doc,
+      theme: resolvedTheme,
+      layout: baseLayout,
+      quote: quoteData,
+    });
+    drawFooterOnAllPages(doc);
+  });
+}
+
 module.exports = {
   generateBookingPdf,
   generateBookingPdfV2,
+   generateQuotePdfV1,
   generatePdfDocument,
 };

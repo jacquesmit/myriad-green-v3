@@ -5,7 +5,7 @@ const logger = require("firebase-functions/logger");
 const nodemailer = require("nodemailer");
 const path = require("path");
 const { buildEmailTemplate } = require("./email/sharedTemplate");
-const { generateBookingPdf, generateBookingPdfV2 } = require("./pdf");
+const { generateBookingPdf, generateBookingPdfV2, generateQuotePdfV1 } = require("./pdf");
 
 const GMAIL_USER = defineSecret("GMAIL_USER");
 const GMAIL_PASS = defineSecret("GMAIL_PASS");
@@ -434,6 +434,220 @@ exports.createBooking = onRequest(
         ok: false,
         error: "Failed to create booking",
       });
+    }
+  }
+);
+
+exports.sendQuote = onRequest(
+  { region: "africa-south1", cors: true, secrets: [GMAIL_USER, GMAIL_PASS, GMAIL_TO] },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    const quotePayload = req.body?.quote || req.body || {};
+    const {
+      reference: providedReference,
+      clientName,
+      clientEmail,
+      clientPhone,
+      clientAddress,
+      serviceName,
+      propertyType,
+      suburb,
+      city,
+      province,
+      items,
+      subtotal,
+      vatAmount,
+      totalAmount,
+      notes,
+      preparedAt,
+    } = quotePayload;
+
+    const hasRequiredFields = [clientName, clientEmail, serviceName, items, totalAmount].every((value, index) => {
+      if (index === 3) {
+        return Array.isArray(value) && value.length > 0;
+      }
+      if (index === 4) {
+        return Number.isFinite(Number(value));
+      }
+      return typeof value === "string" && value.trim().length > 0;
+    });
+
+    if (!hasRequiredFields) {
+      res.status(400).json({ error: "Missing required fields" });
+      return;
+    }
+
+    const preparedDate = (() => {
+      if (!preparedAt) {
+        return new Date();
+      }
+      const candidate = new Date(preparedAt);
+      return Number.isNaN(candidate.getTime()) ? new Date() : candidate;
+    })();
+
+    try {
+      const quoteDoc = {
+        reference: providedReference || null,
+        serviceName: String(serviceName).trim(),
+        client: {
+          name: String(clientName).trim(),
+          email: String(clientEmail).trim(),
+          phone: clientPhone ? String(clientPhone).trim() : null,
+          address: clientAddress || null,
+          suburb: suburb || null,
+          city: city || null,
+          province: province || null,
+        },
+        items: Array.isArray(items) ? items : [],
+        subtotal: Number(subtotal) || 0,
+        vatAmount: vatAmount != null ? Number(vatAmount) : null,
+        totalAmount: Number(totalAmount) || 0,
+        notes: notes || null,
+        status: "sent",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        preparedAt: preparedDate,
+      };
+
+      const docRef = await admin.firestore().collection("quotes").add(quoteDoc);
+      const reference = providedReference && providedReference.trim().length ? providedReference.trim() : docRef.id;
+      if (!providedReference) {
+        await docRef.update({ reference });
+      }
+
+      const quoteForPdf = {
+        reference,
+        preparedAt: preparedDate,
+        serviceName: quoteDoc.serviceName,
+        clientName: quoteDoc.client.name,
+        clientEmail: quoteDoc.client.email,
+        clientPhone: quoteDoc.client.phone,
+        clientAddress: quoteDoc.client.address,
+        propertyType,
+        suburb,
+        city,
+        province,
+        items: quoteDoc.items,
+        subtotal: quoteDoc.subtotal,
+        vatAmount: quoteDoc.vatAmount,
+        totalAmount: quoteDoc.totalAmount,
+        notes: quoteDoc.notes,
+      };
+
+      let pdfBuffer = null;
+      try {
+        pdfBuffer = await generateQuotePdfV1(quoteForPdf);
+      } catch (pdfError) {
+        logger.error("sendQuote pdf generation error", pdfError);
+      }
+
+      const user = GMAIL_USER.value();
+      const pass = GMAIL_PASS.value();
+      const internalRecipient = GMAIL_TO.value() || user;
+
+      const formatCurrency = (value) => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? `R ${numeric.toFixed(2)}` : formatValue(value);
+      };
+
+      const pdfAttachment = pdfBuffer
+        ? {
+            filename: `MG-QUOTE-${reference}.pdf`,
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          }
+        : null;
+
+      if (!user || !pass) {
+        logger.error("sendQuote email skipped: missing Gmail credentials");
+      } else {
+        const transporter = nodemailer.createTransport({
+          service: "gmail",
+          auth: { user, pass },
+        });
+
+        const attachments = [buildLogoAttachment()];
+        if (pdfAttachment) {
+          attachments.push(pdfAttachment);
+        }
+
+        const adminHtml = buildEmailTemplate({
+          title: "New Quote Sent",
+          intro: "A new quote has been prepared and emailed to the client.",
+          rows: [
+            { label: "Client", value: quoteDoc.client.name },
+            { label: "Service", value: quoteDoc.serviceName },
+            { label: "Total", value: formatCurrency(quoteDoc.totalAmount) },
+            { label: "Reference", value: reference },
+          ],
+          footerNote: "Follow up with the client to confirm acceptance and next steps.",
+        });
+
+        const clientHtml = buildEmailTemplate({
+          title: "Your Quote from Myriad Green",
+          intro: [
+            `Hi ${quoteDoc.client.name},`,
+            "Thank you for considering Myriad Green. Review the quote summary below and open the attached PDF for full details. Reply directly to accept or request adjustments.",
+          ].join("\n\n"),
+          rows: [
+            { label: "Client", value: quoteDoc.client.name },
+            { label: "Service", value: quoteDoc.serviceName },
+            { label: "Total", value: formatCurrency(quoteDoc.totalAmount) },
+            { label: "Reference", value: reference },
+            { label: "Prepared", value: preparedDate.toLocaleString("en-ZA") },
+          ],
+          footerNote: "To approve this quote, reply to this email or call +27 81 72 16701.",
+        });
+
+        const adminText = [
+          "New quote sent to client.",
+          `Client: ${quoteDoc.client.name}`,
+          `Service: ${quoteDoc.serviceName}`,
+          `Total: ${formatCurrency(quoteDoc.totalAmount)}`,
+          `Reference: ${reference}`,
+        ].join("\n");
+
+        const clientText = [
+          `Hi ${quoteDoc.client.name},`,
+          "Thank you for considering Myriad Green. We've attached your quote as a PDF.",
+          `Service: ${quoteDoc.serviceName}`,
+          `Total: ${formatCurrency(quoteDoc.totalAmount)}`,
+          `Reference: ${reference}`,
+          "Reply to this email to accept or ask questions.",
+        ].join("\n");
+
+        try {
+          await Promise.all([
+            transporter.sendMail({
+              from: `"Myriad Green" <${user}>`,
+              to: internalRecipient,
+              subject: `New Quote Sent – ${quoteDoc.client.name} (${quoteDoc.serviceName})`,
+              text: adminText,
+              html: adminHtml,
+              attachments,
+            }),
+            transporter.sendMail({
+              from: `"Myriad Green" <${user}>`,
+              to: quoteDoc.client.email,
+              replyTo: user,
+              subject: `Your Quote from Myriad Green – ${quoteDoc.serviceName}`,
+              text: clientText,
+              html: clientHtml,
+              attachments,
+            }),
+          ]);
+        } catch (mailError) {
+          logger.error("sendQuote email error", mailError);
+        }
+      }
+
+      res.status(200).json({ ok: true, reference });
+    } catch (error) {
+      logger.error("sendQuote error", error);
+      res.status(500).json({ error: "Internal error" });
     }
   }
 );
