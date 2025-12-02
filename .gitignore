@@ -6,3 +6,20 @@ dist/
 build/
 .vscode/
 .idea/
+tmp/
+
+# PDF test artifacts
+functions/pdf/tmp-*.pdf
+
+# Local test scripts
+functions/pdf/test-*-local.js
+
+# JSON test data
+functions/test-*.json
+functions/pdf/test-*.json
+
+# VS Code temp
+*.code-workspace
+
+# Node / Firebase artifacts
+functions/.runtimeconfig.json
