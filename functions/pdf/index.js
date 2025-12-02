@@ -982,6 +982,99 @@ const renderQuoteHeroV1 = (doc, theme, layout, quote) => {
   return heroY + heroHeight + 24;
 };
 
+const renderInvoiceHeroV1 = (doc, theme, layout, invoice) => {
+  const heroHeight = 150;
+  const heroX = layout.marginLeft;
+  const heroY = layout.marginTop;
+
+  doc.save();
+  doc
+    .roundedRect(heroX, heroY, layout.contentWidth, heroHeight, 16)
+    .fillAndStroke(theme.headerBackground, theme.headerBorder);
+  doc.rect(heroX, heroY, layout.contentWidth, 6).fill(theme.accent);
+  doc.restore();
+
+  const textWidth = layout.contentWidth - 200;
+  const contentX = heroX + 28;
+  const contentY = heroY + 24;
+  const invoiceNumber = invoice.invoiceNumber || invoice.reference || "Pending";
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(22)
+    .fillColor(theme.textPrimary)
+    .text("Invoice", contentX, contentY, { width: textWidth });
+  doc
+    .font("Helvetica")
+    .fontSize(12)
+    .fillColor(theme.textSecondary)
+    .text(`Invoice #: ${formatValue(invoiceNumber)}`, contentX, doc.y + 6, { width: textWidth })
+    .text(`Issued: ${formatDateTime(invoice.issuedAt || new Date())}`, contentX, doc.y + 4, {
+      width: textWidth,
+    })
+    .text(`Due: ${invoice.dueAt ? formatDateTime(invoice.dueAt) : "On receipt"}`, contentX, doc.y + 4, {
+      width: textWidth,
+    })
+    .text(`Service: ${formatValue(invoice.serviceName)}`, contentX, doc.y + 4, { width: textWidth })
+    .text(`Client: ${formatValue(invoice.clientName)}`, contentX, doc.y + 4, { width: textWidth });
+
+  if (fs.existsSync(LOGO_PATH)) {
+    doc.image(LOGO_PATH, heroX + layout.contentWidth - 150, heroY + 26, {
+      fit: [110, 60],
+      align: "right",
+    });
+  }
+
+  return heroY + heroHeight + 24;
+};
+
+const renderServiceReportHeroV1 = (doc, theme, layout, report) => {
+  const heroHeight = 150;
+  const heroX = layout.marginLeft;
+  const heroY = layout.marginTop;
+
+  doc.save();
+  doc
+    .roundedRect(heroX, heroY, layout.contentWidth, heroHeight, 16)
+    .fillAndStroke(theme.headerBackground, theme.headerBorder);
+  doc.rect(heroX, heroY, layout.contentWidth, 6).fill(theme.accent);
+  doc.restore();
+
+  const textWidth = layout.contentWidth - 200;
+  const contentX = heroX + 28;
+  const contentY = heroY + 24;
+  const reportNumber = report.reportNumber || report.reference || "Pending Report Number";
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(22)
+    .fillColor(theme.textPrimary)
+    .text("Service Report", contentX, contentY, { width: textWidth });
+  doc
+    .font("Helvetica")
+    .fontSize(12)
+    .fillColor(theme.textSecondary)
+    .text(`Report #: ${formatValue(reportNumber)}`, contentX, doc.y + 6, { width: textWidth })
+    .text(`Service: ${formatValue(report.serviceName)}`, contentX, doc.y + 4, { width: textWidth })
+    .text(`Client: ${formatValue(report.clientName)}`, contentX, doc.y + 4, { width: textWidth })
+    .text(`Visit Date: ${report.visitDate ? formatDateTime(report.visitDate) : "Not recorded"}`, contentX, doc.y + 4, {
+      width: textWidth,
+    });
+
+  if (report.reference) {
+    doc.text(`Reference: ${formatValue(report.reference)}`, contentX, doc.y + 4, { width: textWidth });
+  }
+
+  if (fs.existsSync(LOGO_PATH)) {
+    doc.image(LOGO_PATH, heroX + layout.contentWidth - 150, heroY + 26, {
+      fit: [110, 60],
+      align: "right",
+    });
+  }
+
+  return heroY + heroHeight + 24;
+};
+
 const renderBookingTemplateV2 = ({ doc, theme, layout, booking }) => {
   const heroBottom = renderBookingHeroV2(doc, theme, layout, booking);
   doc.y = heroBottom;
@@ -1095,6 +1188,339 @@ const renderQuoteLineItemsBlock = (doc, theme, layout, quote) => {
     currency,
   });
   doc.moveDown(0.6);
+};
+
+const collectInvoiceDetailEntries = (invoice) => {
+  const entries = [
+    { label: "Service", value: invoice.serviceName },
+    { label: "Reference", value: invoice.reference },
+    { label: "Invoice Number", value: invoice.invoiceNumber || invoice.reference },
+    { label: "Issued", value: invoice.issuedAt ? formatDateTime(invoice.issuedAt) : null },
+    { label: "Due", value: invoice.dueAt ? formatDateTime(invoice.dueAt) : "On receipt" },
+    { label: "Client Email", value: invoice.clientEmail },
+    { label: "Client Phone", value: invoice.clientPhone },
+    { label: "Client Address", value: invoice.clientAddress },
+    { label: "Suburb", value: invoice.suburb },
+    { label: "City", value: invoice.city },
+    { label: "Province", value: invoice.province },
+  ].filter((entry) => entry.value);
+
+  const metadata = invoice.details || invoice.metadata || invoice.extraDetails;
+  if (metadata && typeof metadata === "object") {
+    Object.entries(metadata).forEach(([key, value]) => {
+      if (value === undefined || value === null || value === "") {
+        return;
+      }
+      entries.push({ label: formatLabel(key), value });
+    });
+  }
+
+  return entries;
+};
+
+const renderInvoiceLineItemsBlock = (doc, theme, layout, invoice) => {
+  const items = Array.isArray(invoice.items) ? invoice.items : [];
+  const currency = invoice.currency || DEFAULT_CURRENCY;
+  const tableResult = drawLineItemsTable({
+    doc,
+    theme,
+    layout,
+    items,
+    currency,
+  });
+
+  const subtotalFromItems = items.reduce((sum, item) => {
+    const explicit = Number(item.total);
+    if (Number.isFinite(explicit)) {
+      return sum + explicit;
+    }
+    return sum + (Number(item.quantity) || 0) * (Number(item.unitPrice) || 0);
+  }, 0);
+
+  const subtotal = invoice.subtotal ?? subtotalFromItems;
+  const vatAmount = invoice.vatAmount != null ? Number(invoice.vatAmount) : null;
+  const totalAmount = invoice.totalAmount ?? (subtotal + (vatAmount || 0));
+
+  doc.y = tableResult.y + 12;
+  drawTotalsBlock(doc, theme, layout, doc.y, {
+    subtotal,
+    vatAmount,
+    vatLabel: invoice.vatLabel || "VAT",
+    total: totalAmount,
+    currency,
+  });
+  doc.moveDown(0.6);
+};
+
+const renderMaterialsTable = (doc, theme, layout, materials) => {
+  if (!Array.isArray(materials) || materials.length === 0) {
+    return;
+  }
+
+  const startY = doc.y;
+  const rowHeight = 28;
+  const colX1 = layout.marginLeft + 16;
+  const colX2 = layout.marginLeft + layout.contentWidth - 180;
+  const colX3 = layout.marginLeft + layout.contentWidth - 80;
+  const cellWidth1 = colX2 - colX1 - 12;
+  const cellWidth2 = colX3 - colX2 - 12;
+  const cellWidth3 = layout.marginLeft + layout.contentWidth - colX3 - 16;
+
+  doc
+    .font("Helvetica-Bold")
+    .fontSize(10)
+    .fillColor(theme.label);
+  doc.text("Material", colX1, startY, { width: cellWidth1 });
+  doc.text("Quantity", colX2, startY, { width: cellWidth2 });
+  doc.text("Notes", colX3, startY, { width: cellWidth3 });
+
+  let currentY = startY + 20;
+  doc.font("Helvetica").fontSize(TYPOGRAPHY.bodySize).fillColor(theme.value);
+
+  materials.forEach((material) => {
+    const name = formatValue(material.name);
+    const qty = material.quantity ? String(material.quantity) : "-";
+    const notes = formatValue(material.notes, "-");
+
+    doc.text(name, colX1, currentY, { width: cellWidth1 });
+    doc.text(qty, colX2, currentY, { width: cellWidth2 });
+    doc.text(notes, colX3, currentY, { width: cellWidth3 });
+    currentY += rowHeight;
+  });
+
+  doc.y = currentY + 8;
+};
+
+const renderFollowUpBlock = (doc, theme, layout, report) => {
+  if (!report.followUpRequired) {
+    return;
+  }
+
+  const startY = doc.y;
+  const panelY = startY + 8;
+  const innerWidth = layout.contentWidth - 36;
+
+  let bodyText = "Follow-up required: Yes";
+  if (report.followUpNotes) {
+    bodyText += `\n\n${report.followUpNotes}`;
+  }
+
+  const bodyHeight = doc.heightOfString(bodyText, { width: innerWidth, lineGap: BODY_LINE_GAP });
+  const panelHeight = bodyHeight + 32;
+
+  doc.save();
+  doc
+    .roundedRect(layout.marginLeft, panelY, layout.contentWidth, panelHeight, 12)
+    .fill(theme.panelBackground)
+    .strokeColor(theme.panelBorder)
+    .lineWidth(1)
+    .stroke();
+  doc.restore();
+
+  doc
+    .font("Helvetica")
+    .fontSize(TYPOGRAPHY.bodySize)
+    .fillColor(theme.value)
+    .text(bodyText, layout.marginLeft + 18, panelY + 14, {
+      width: innerWidth,
+      lineGap: BODY_LINE_GAP,
+    });
+
+  doc.y = panelY + panelHeight + 12;
+};
+
+const renderInvoiceTemplateV1 = ({ doc, theme, layout, invoice }) => {
+  const heroBottom = renderInvoiceHeroV1(doc, theme, layout, invoice);
+  doc.y = heroBottom;
+
+  let workingLayout = { ...layout };
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Client Details",
+    estimate: 180,
+    body: (currentLayout) =>
+      renderV2KeyValueList(doc, theme, currentLayout, [
+        { label: "Name", value: invoice.clientName },
+        { label: "Email", value: invoice.clientEmail },
+        { label: "Phone", value: invoice.clientPhone },
+        {
+          label: "Address",
+          value: invoice.clientAddress || invoice.suburb || invoice.city || invoice.province,
+        },
+      ]),
+  });
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Invoice Details",
+    estimate: 220,
+    body: (currentLayout) => {
+      const entries = collectInvoiceDetailEntries(invoice);
+      if (entries.length) {
+        renderV2KeyValueList(doc, theme, currentLayout, entries);
+      } else {
+        doc
+          .font("Helvetica")
+          .fontSize(12)
+          .fillColor(theme.textSecondary)
+          .text("No additional invoice details provided.", currentLayout.marginLeft, doc.y, {
+            width: currentLayout.contentWidth,
+          });
+      }
+    },
+  });
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Line Items",
+    estimate: 260,
+    body: (currentLayout) => renderInvoiceLineItemsBlock(doc, theme, currentLayout, invoice),
+  });
+
+  if (invoice.paymentInstructions) {
+    workingLayout = renderV2Section(doc, theme, workingLayout, {
+      title: "Payment Instructions",
+      estimate: 200,
+      body: (currentLayout) => renderV2NotesBlock(doc, theme, currentLayout, invoice.paymentInstructions),
+    });
+  }
+
+  if (invoice.notes) {
+    workingLayout = renderV2Section(doc, theme, workingLayout, {
+      title: "Notes",
+      estimate: 200,
+      body: (currentLayout) => renderV2NotesBlock(doc, theme, currentLayout, invoice.notes),
+    });
+  }
+
+  renderV2Section(doc, theme, workingLayout, {
+    title: "Signatures",
+    estimate: 220,
+    divider: false,
+    body: (currentLayout) => renderV2SignatureBlock(doc, theme, currentLayout, invoice),
+  });
+};
+
+const renderServiceReportTemplateV1 = ({ doc, theme, layout, report }) => {
+  const heroBottom = renderServiceReportHeroV1(doc, theme, layout, report);
+  doc.y = heroBottom;
+
+  let workingLayout = { ...layout };
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Client & Site Details",
+    estimate: 220,
+    body: (currentLayout) => {
+      const entries = [
+        { label: "Client Name", value: report.clientName },
+        { label: "Email", value: report.clientEmail },
+        { label: "Phone", value: report.clientPhone },
+        { label: "Address", value: report.clientAddress },
+        { label: "Suburb", value: report.suburb },
+        { label: "City", value: report.city },
+        { label: "Province", value: report.province },
+        { label: "Property Type", value: report.propertyType },
+      ].filter((e) => e.value);
+      if (entries.length) {
+        renderV2KeyValueList(doc, theme, currentLayout, entries);
+      }
+      if (report.siteNotes) {
+        doc.moveDown(0.5);
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(TYPOGRAPHY.labelSize)
+          .fillColor(theme.label)
+          .text("Site Notes:", currentLayout.marginLeft, doc.y);
+        doc
+          .font("Helvetica")
+          .fontSize(TYPOGRAPHY.bodySize)
+          .fillColor(theme.value)
+          .text(report.siteNotes, currentLayout.marginLeft, doc.y + 4, {
+            width: currentLayout.contentWidth,
+            lineGap: BODY_LINE_GAP,
+          });
+        doc.moveDown(0.5);
+      }
+    },
+  });
+
+  workingLayout = renderV2Section(doc, theme, workingLayout, {
+    title: "Visit Details",
+    estimate: 180,
+    body: (currentLayout) => {
+      const entries = [
+        { label: "Technician", value: report.technicianName },
+        { label: "Visit Date", value: report.visitDate ? formatDateTime(report.visitDate) : null },
+        { label: "Arrival Time", value: report.arrivalTime },
+        { label: "Departure Time", value: report.departureTime },
+      ].filter((e) => e.value);
+      if (entries.length) {
+        renderV2KeyValueList(doc, theme, currentLayout, entries);
+      }
+      if (report.technicianNotes) {
+        doc.moveDown(0.5);
+        doc
+          .font("Helvetica-Bold")
+          .fontSize(TYPOGRAPHY.labelSize)
+          .fillColor(theme.label)
+          .text("Technician Notes:", currentLayout.marginLeft, doc.y);
+        doc
+          .font("Helvetica")
+          .fontSize(TYPOGRAPHY.bodySize)
+          .fillColor(theme.value)
+          .text(report.technicianNotes, currentLayout.marginLeft, doc.y + 4, {
+            width: currentLayout.contentWidth,
+            lineGap: BODY_LINE_GAP,
+          });
+        doc.moveDown(0.5);
+      }
+    },
+  });
+
+  if (report.findings) {
+    workingLayout = renderV2Section(doc, theme, workingLayout, {
+      title: "Findings",
+      estimate: 200,
+      body: (currentLayout) => renderV2NotesBlock(doc, theme, currentLayout, report.findings),
+    });
+  }
+
+  if (report.actionsTaken) {
+    workingLayout = renderV2Section(doc, theme, workingLayout, {
+      title: "Actions Taken",
+      estimate: 200,
+      body: (currentLayout) => renderV2NotesBlock(doc, theme, currentLayout, report.actionsTaken),
+    });
+  }
+
+  if (report.materialsUsed && report.materialsUsed.length > 0) {
+    workingLayout = renderV2Section(doc, theme, workingLayout, {
+      title: "Materials Used",
+      estimate: 180,
+      body: (currentLayout) => renderMaterialsTable(doc, theme, currentLayout, report.materialsUsed),
+    });
+  }
+
+  if (report.recommendations) {
+    workingLayout = renderV2Section(doc, theme, workingLayout, {
+      title: "Recommendations / Next Steps",
+      estimate: 200,
+      body: (currentLayout) => renderV2NotesBlock(doc, theme, currentLayout, report.recommendations),
+    });
+  }
+
+  if (report.followUpRequired) {
+    workingLayout = renderV2Section(doc, theme, workingLayout, {
+      title: "Follow-Up",
+      estimate: 160,
+      body: (currentLayout) => renderFollowUpBlock(doc, theme, currentLayout, report),
+    });
+  }
+
+  renderV2Section(doc, theme, workingLayout, {
+    title: "Signatures",
+    estimate: 220,
+    divider: false,
+    body: (currentLayout) => renderV2SignatureBlock(doc, theme, currentLayout, report),
+  });
 };
 
 const renderQuoteTemplateV1 = ({ doc, theme, layout, quote }) => {
@@ -1408,9 +1834,45 @@ function generateQuotePdfV1(quoteData = {}, options = {}) {
   });
 }
 
+function generateInvoicePdfV1(invoiceData = {}, options = {}) {
+  const themeOption = typeof options === "string" ? options : options.theme;
+  const resolvedTheme = resolveTheme(themeOption || DEFAULT_THEME);
+  return createPdfBuffer((doc) => {
+    const baseLayout = getLayout(doc);
+    drawPageBackground(doc, resolvedTheme, baseLayout);
+    drawSurface(doc, resolvedTheme, baseLayout);
+    renderInvoiceTemplateV1({
+      doc,
+      theme: resolvedTheme,
+      layout: baseLayout,
+      invoice: invoiceData,
+    });
+    drawFooterOnAllPages(doc);
+  });
+}
+
+function generateServiceReportPdfV1(reportData = {}, options = {}) {
+  const themeOption = typeof options === "string" ? options : options.theme;
+  const resolvedTheme = resolveTheme(themeOption || DEFAULT_THEME);
+  return createPdfBuffer((doc) => {
+    const baseLayout = getLayout(doc);
+    drawPageBackground(doc, resolvedTheme, baseLayout);
+    drawSurface(doc, resolvedTheme, baseLayout);
+    renderServiceReportTemplateV1({
+      doc,
+      theme: resolvedTheme,
+      layout: baseLayout,
+      report: reportData,
+    });
+    drawFooterOnAllPages(doc);
+  });
+}
+
 module.exports = {
   generateBookingPdf,
   generateBookingPdfV2,
-   generateQuotePdfV1,
+  generateQuotePdfV1,
+  generateInvoicePdfV1,
+  generateServiceReportPdfV1,
   generatePdfDocument,
 };
