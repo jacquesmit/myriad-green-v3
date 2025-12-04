@@ -5,7 +5,13 @@ const logger = require("firebase-functions/logger");
 const nodemailer = require("nodemailer");
 const path = require("path");
 const { buildEmailTemplate } = require("./email/sharedTemplate");
-const { generateBookingPdf, generateBookingPdfV2, generateQuotePdfV1, generateInvoicePdfV1 } = require("./pdf");
+const {
+  generateBookingPdf,
+  generateBookingPdfV2,
+  generateQuotePdfV1,
+  generateInvoicePdfV1,
+  generateServiceReportPdfV1,
+} = require("./pdf");
 
 const GMAIL_USER = defineSecret("GMAIL_USER");
 const GMAIL_PASS = defineSecret("GMAIL_PASS");
@@ -254,7 +260,7 @@ exports.createBooking = onRequest(
         notes: notes || null,
         status: "pending",
         source: "website-v3",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: admin.firestore.Timestamp.now(),
       };
 
       const docRef = await admin.firestore().collection("bookings").add(bookingRecord);
@@ -866,6 +872,269 @@ exports.sendInvoice = onRequest(
       res.status(200).json({ ok: true, invoiceNumber });
     } catch (error) {
       logger.error("sendInvoice error", error);
+      res.status(500).json({ error: "Internal error" });
+    }
+  }
+);
+
+exports.sendServiceReport = onRequest(
+  { region: "africa-south1", cors: true, secrets: [GMAIL_USER, GMAIL_PASS, GMAIL_TO] },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    const reportPayload = req.body?.report || req.body || {};
+    const {
+      reportNumber: providedReportNumber,
+      reference,
+      serviceName,
+      clientName,
+      clientEmail,
+      clientPhone,
+      clientAddress,
+      suburb,
+      city,
+      province,
+      propertyType,
+      siteNotes,
+      technicianName,
+      technicianNotes,
+      visitDate: visitDateInput,
+      arrivalTime,
+      departureTime,
+      findings,
+      actionsTaken,
+      recommendations,
+      followUpRequired,
+      followUpNotes,
+      materialsUsed,
+    } = reportPayload;
+
+    const hasRequiredFields = [clientName, clientEmail, serviceName].every(
+      (value) => typeof value === "string" && value.trim().length > 0
+    );
+
+    if (!hasRequiredFields) {
+      res.status(400).json({ error: "Missing required fields" });
+      return;
+    }
+
+    const normalizeDate = (input, fallback = null) => {
+      if (!input) {
+        return fallback;
+      }
+      const candidate = typeof input.toDate === "function" ? input.toDate() : new Date(input);
+      return Number.isNaN(candidate.getTime()) ? fallback : candidate;
+    };
+
+    const visitDate = normalizeDate(visitDateInput, new Date());
+    const normalizedMaterials = Array.isArray(materialsUsed)
+      ? materialsUsed
+          .map((material) => ({
+            name: material?.name ? String(material.name).trim() : null,
+            quantity:
+              material?.quantity === undefined || material?.quantity === null
+                ? null
+                : material.quantity,
+            notes: material?.notes ? String(material.notes).trim() : null,
+          }))
+          .filter((entry) => entry.name)
+      : [];
+
+    const followUpFlag = typeof followUpRequired === "string"
+      ? followUpRequired.toLowerCase() === "true"
+      : Boolean(followUpRequired);
+
+    try {
+      const reportDoc = {
+        reportNumber: providedReportNumber ? String(providedReportNumber).trim() : null,
+        reference: reference ? String(reference).trim() : null,
+        serviceName: String(serviceName).trim(),
+        client: {
+          name: String(clientName).trim(),
+          email: String(clientEmail).trim(),
+          phone: clientPhone ? String(clientPhone).trim() : null,
+          address: clientAddress || null,
+          suburb: suburb || null,
+          city: city || null,
+          province: province || null,
+        },
+        propertyType: propertyType || null,
+        siteNotes: siteNotes || null,
+        technicianName: technicianName || null,
+        technicianNotes: technicianNotes || null,
+        visitDate,
+        arrivalTime: arrivalTime || null,
+        departureTime: departureTime || null,
+        findings: findings || null,
+        actionsTaken: actionsTaken || null,
+        recommendations: recommendations || null,
+        followUpRequired: followUpFlag,
+        followUpNotes: followUpNotes || null,
+        materialsUsed: normalizedMaterials,
+        status: "sent",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+      };
+
+      const docRef = await admin.firestore().collection("serviceReports").add(reportDoc);
+      let reportNumber = reportDoc.reportNumber;
+      if (!reportNumber) {
+        reportNumber = docRef.id;
+        await docRef.update({ reportNumber });
+      }
+
+      const pdfPayload = {
+        reportNumber,
+        reference: reportDoc.reference,
+        serviceName: reportDoc.serviceName,
+        clientName: reportDoc.client.name,
+        clientEmail: reportDoc.client.email,
+        clientPhone: reportDoc.client.phone,
+        clientAddress: reportDoc.client.address,
+        suburb: reportDoc.client.suburb,
+        city: reportDoc.client.city,
+        province: reportDoc.client.province,
+        propertyType: reportDoc.propertyType,
+        siteNotes: reportDoc.siteNotes,
+        technicianName: reportDoc.technicianName,
+        technicianNotes: reportDoc.technicianNotes,
+        visitDate,
+        arrivalTime: reportDoc.arrivalTime,
+        departureTime: reportDoc.departureTime,
+        findings: reportDoc.findings,
+        actionsTaken: reportDoc.actionsTaken,
+        recommendations: reportDoc.recommendations,
+        followUpRequired: reportDoc.followUpRequired,
+        followUpNotes: reportDoc.followUpNotes,
+        materialsUsed: reportDoc.materialsUsed,
+      };
+
+      let pdfBuffer = null;
+      try {
+        pdfBuffer = await generateServiceReportPdfV1(pdfPayload);
+      } catch (pdfError) {
+        logger.error("sendServiceReport pdf generation error", pdfError);
+      }
+
+      const user = GMAIL_USER.value();
+      const pass = GMAIL_PASS.value();
+      const internalRecipient = GMAIL_TO.value() || user;
+
+      const formatDateForEmail = (value) => {
+        if (!value) {
+          return "Not recorded";
+        }
+        const candidate = typeof value.toDate === "function" ? value.toDate() : new Date(value);
+        return Number.isNaN(candidate.getTime()) ? "Not recorded" : candidate.toLocaleString("en-ZA");
+      };
+
+      const followUpSummary = reportDoc.followUpRequired
+        ? displayValue(reportDoc.followUpNotes, "Follow-up required – details pending.")
+        : "No follow-up required";
+
+      const pdfAttachment = pdfBuffer
+        ? {
+            filename: `MG-SERVICE-REPORT-${reportNumber}.pdf`,
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          }
+        : null;
+
+      if (!user || !pass) {
+        logger.error("sendServiceReport email skipped: missing Gmail credentials");
+      } else {
+        const transporter = nodemailer.createTransport({
+          service: "gmail",
+          auth: { user, pass },
+        });
+
+        const attachments = [buildLogoAttachment()];
+        if (pdfAttachment) {
+          attachments.push(pdfAttachment);
+        }
+
+        const adminHtml = buildEmailTemplate({
+          title: "Service Report Sent",
+          intro: "A new service report has been compiled and emailed to the client.",
+          rows: [
+            { label: "Client", value: reportDoc.client.name },
+            { label: "Service", value: reportDoc.serviceName },
+            { label: "Technician", value: displayValue(reportDoc.technicianName, "Not recorded") },
+            { label: "Visit Date", value: formatDateForEmail(visitDate) },
+            { label: "Report #", value: reportNumber },
+          ],
+          footerNote: followUpSummary,
+        });
+
+        const clientIntro = [
+          `Hi ${displayValue(reportDoc.client.name, "there")},`,
+          "Thank you for choosing Myriad Green. We have attached the detailed service report from your recent visit.",
+        ].join("\n\n");
+
+        const clientHtml = buildEmailTemplate({
+          title: "Your Service Report",
+          intro: clientIntro,
+          rows: [
+            { label: "Report #", value: reportNumber },
+            { label: "Service", value: reportDoc.serviceName },
+            { label: "Technician", value: displayValue(reportDoc.technicianName, "Not recorded") },
+            { label: "Visit Date", value: formatDateForEmail(visitDate) },
+            { label: "Follow-Up", value: followUpSummary },
+          ],
+          footerNote: "Review the attached PDF for full findings, actions, and next steps. Reply if you have any questions.",
+        });
+
+        const adminText = [
+          "New service report sent.",
+          `Client: ${reportDoc.client.name}`,
+          `Service: ${reportDoc.serviceName}`,
+          `Technician: ${displayValue(reportDoc.technicianName, "Not recorded")}`,
+          `Visit Date: ${formatDateForEmail(visitDate)}`,
+          `Report #: ${reportNumber}`,
+          `Follow-Up: ${followUpSummary}`,
+        ].join("\n");
+
+        const clientText = [
+          `Hi ${reportDoc.client.name},`,
+          "Thanks for choosing Myriad Green. Your detailed service report is attached as a PDF.",
+          `Service: ${reportDoc.serviceName}`,
+          `Technician: ${displayValue(reportDoc.technicianName, "Not recorded")}`,
+          `Visit Date: ${formatDateForEmail(visitDate)}`,
+          `Report #: ${reportNumber}`,
+          `Follow-Up: ${followUpSummary}`,
+          "Reply to this email if you need any clarifications.",
+        ].join("\n");
+
+        try {
+          await Promise.all([
+            transporter.sendMail({
+              from: `"Myriad Green" <${user}>`,
+              to: internalRecipient,
+              subject: `Service Report Sent – ${reportDoc.client.name} (${reportDoc.serviceName})`,
+              text: adminText,
+              html: adminHtml,
+              attachments,
+            }),
+            transporter.sendMail({
+              from: `"Myriad Green" <${user}>`,
+              to: reportDoc.client.email,
+              replyTo: user,
+              subject: `Your Service Report – ${reportDoc.serviceName}`,
+              text: clientText,
+              html: clientHtml,
+              attachments,
+            }),
+          ]);
+        } catch (mailError) {
+          logger.error("sendServiceReport email error", mailError);
+        }
+      }
+
+      res.status(200).json({ success: true, reportId: docRef.id, reportNumber, message: "Service report sent" });
+    } catch (error) {
+      logger.error("sendServiceReport error", error);
       res.status(500).json({ error: "Internal error" });
     }
   }
