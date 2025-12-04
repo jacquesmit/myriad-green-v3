@@ -1,6 +1,7 @@
 const { onRequest } = require("firebase-functions/v2/https");
 const { defineSecret } = require("firebase-functions/params");
 const admin = require("firebase-admin");
+const { FieldValue } = require("firebase-admin/firestore");
 const logger = require("firebase-functions/logger");
 const nodemailer = require("nodemailer");
 const path = require("path");
@@ -95,11 +96,53 @@ const buildEmailShell = ({ headerRightTop, headerRightBottom, bodyHtml }) => `
   </div>
 `;
 
+const sendEmailWithRetry = async (transporter, mailOptions, options = {}) => {
+  const rawMaxAttempts = Number(options?.maxAttempts);
+  const rawBaseDelay = Number(options?.baseDelayMs);
+  const maxAttempts = Number.isFinite(rawMaxAttempts) && rawMaxAttempts > 0 ? Math.floor(rawMaxAttempts) : 3;
+  const baseDelayMs = Number.isFinite(rawBaseDelay) && rawBaseDelay >= 0 ? rawBaseDelay : 1000;
+
+  let attempt = 0;
+  let lastError = null;
+
+  while (attempt < maxAttempts) {
+    attempt += 1;
+    try {
+      const result = await transporter.sendMail(mailOptions);
+      logger.info("Email sent", {
+        to: mailOptions?.to,
+        subject: mailOptions?.subject,
+        attempt,
+      });
+      return result;
+    } catch (error) {
+      lastError = error;
+      logger.error("Email send failed", {
+        to: mailOptions?.to,
+        subject: mailOptions?.subject,
+        attempt,
+        error: error?.message || String(error),
+      });
+
+      if (attempt >= maxAttempts) {
+        break;
+      }
+
+      const delay = baseDelayMs * 2 ** (attempt - 1);
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+
+  throw lastError;
+};
+
 // Gmail credentials are provided via Firebase secrets
 // (set with `firebase functions:secrets:set` in each project/region).
 if (!admin.apps.length) {
   admin.initializeApp();
 }
+
+const db = admin.firestore();
 
 exports.sendContactEmail = onRequest(
   { region: "africa-south1", cors: true, secrets: [GMAIL_USER, GMAIL_PASS, GMAIL_TO] },
@@ -190,7 +233,7 @@ exports.sendContactEmail = onRequest(
 
     try {
       await Promise.all([
-        transporter.sendMail({
+        sendEmailWithRetry(transporter, {
           from: `"Myriad Green" <${user}>`,
           to: recipient,
           replyTo: contactEmail,
@@ -199,7 +242,7 @@ exports.sendContactEmail = onRequest(
           html: adminHtml,
           attachments: [buildLogoAttachment()],
         }),
-        transporter.sendMail({
+        sendEmailWithRetry(transporter, {
           from: `"Myriad Green" <${user}>`,
           to: contactEmail,
           replyTo: user,
@@ -260,7 +303,7 @@ exports.createBooking = onRequest(
         notes: notes || null,
         status: "pending",
         source: "website-v3",
-        createdAt: admin.firestore.Timestamp.now(),
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
       };
 
       const docRef = await admin.firestore().collection("bookings").add(bookingRecord);
@@ -627,7 +670,7 @@ exports.sendQuote = onRequest(
 
         try {
           await Promise.all([
-            transporter.sendMail({
+            sendEmailWithRetry(transporter, {
               from: `"Myriad Green" <${user}>`,
               to: internalRecipient,
               subject: `New Quote Sent – ${quoteDoc.client.name} (${quoteDoc.serviceName})`,
@@ -635,7 +678,7 @@ exports.sendQuote = onRequest(
               html: adminHtml,
               attachments,
             }),
-            transporter.sendMail({
+            sendEmailWithRetry(transporter, {
               from: `"Myriad Green" <${user}>`,
               to: quoteDoc.client.email,
               replyTo: user,
@@ -912,24 +955,36 @@ exports.sendServiceReport = onRequest(
       materialsUsed,
     } = reportPayload;
 
-    const hasRequiredFields = [clientName, clientEmail, serviceName].every(
-      (value) => typeof value === "string" && value.trim().length > 0
-    );
+    const normalizeDate = (input) => {
+      if (!input) {
+        return null;
+      }
+      const candidate = typeof input.toDate === "function" ? input.toDate() : new Date(input);
+      return Number.isNaN(candidate.getTime()) ? null : candidate;
+    };
 
-    if (!hasRequiredFields) {
-      res.status(400).json({ error: "Missing required fields" });
+    const visitDate = normalizeDate(visitDateInput);
+    const requiredFields = [
+      { label: "serviceName", value: serviceName },
+      { label: "clientName", value: clientName },
+      { label: "clientEmail", value: clientEmail },
+      { label: "visitDate", value: visitDateInput },
+    ];
+    const missingCoreFields = requiredFields.filter(({ value }) => {
+      if (value === undefined || value === null) {
+        return true;
+      }
+      if (typeof value === "string") {
+        return !value.trim().length;
+      }
+      return false;
+    });
+
+    if (missingCoreFields.length) {
+      res.status(400).json({ error: `Missing required fields: ${missingCoreFields.map((f) => f.label).join(", ")}` });
       return;
     }
 
-    const normalizeDate = (input, fallback = null) => {
-      if (!input) {
-        return fallback;
-      }
-      const candidate = typeof input.toDate === "function" ? input.toDate() : new Date(input);
-      return Number.isNaN(candidate.getTime()) ? fallback : candidate;
-    };
-
-    const visitDate = normalizeDate(visitDateInput, new Date());
     const normalizedMaterials = Array.isArray(materialsUsed)
       ? materialsUsed
           .map((material) => ({
@@ -956,29 +1011,29 @@ exports.sendServiceReport = onRequest(
           name: String(clientName).trim(),
           email: String(clientEmail).trim(),
           phone: clientPhone ? String(clientPhone).trim() : null,
-          address: clientAddress || null,
-          suburb: suburb || null,
-          city: city || null,
-          province: province || null,
+          address: clientAddress ? String(clientAddress).trim() : null,
+          suburb: suburb ? String(suburb).trim() : null,
+          city: city ? String(city).trim() : null,
+          province: province ? String(province).trim() : null,
         },
-        propertyType: propertyType || null,
-        siteNotes: siteNotes || null,
-        technicianName: technicianName || null,
-        technicianNotes: technicianNotes || null,
-        visitDate,
-        arrivalTime: arrivalTime || null,
-        departureTime: departureTime || null,
-        findings: findings || null,
-        actionsTaken: actionsTaken || null,
-        recommendations: recommendations || null,
+        propertyType: propertyType ? String(propertyType).trim() : null,
+        siteNotes: siteNotes ? String(siteNotes).trim() : null,
+        technicianName: technicianName ? String(technicianName).trim() : null,
+        technicianNotes: technicianNotes ? String(technicianNotes).trim() : null,
+        visitDate: visitDate || new Date(),
+        arrivalTime: arrivalTime ? String(arrivalTime).trim() : null,
+        departureTime: departureTime ? String(departureTime).trim() : null,
+        findings: findings ? String(findings).trim() : null,
+        actionsTaken: actionsTaken ? String(actionsTaken).trim() : null,
+        recommendations: recommendations ? String(recommendations).trim() : null,
         followUpRequired: followUpFlag,
-        followUpNotes: followUpNotes || null,
+        followUpNotes: followUpNotes ? String(followUpNotes).trim() : null,
         materialsUsed: normalizedMaterials,
         status: "sent",
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        createdAt: FieldValue.serverTimestamp(),
       };
 
-      const docRef = await admin.firestore().collection("serviceReports").add(reportDoc);
+      const docRef = await db.collection("serviceReports").add(reportDoc);
       let reportNumber = reportDoc.reportNumber;
       if (!reportNumber) {
         reportNumber = docRef.id;
@@ -1000,7 +1055,7 @@ exports.sendServiceReport = onRequest(
         siteNotes: reportDoc.siteNotes,
         technicianName: reportDoc.technicianName,
         technicianNotes: reportDoc.technicianNotes,
-        visitDate,
+        visitDate: reportDoc.visitDate,
         arrivalTime: reportDoc.arrivalTime,
         departureTime: reportDoc.departureTime,
         findings: reportDoc.findings,
@@ -1013,7 +1068,7 @@ exports.sendServiceReport = onRequest(
 
       let pdfBuffer = null;
       try {
-        pdfBuffer = await generateServiceReportPdfV1(pdfPayload);
+        pdfBuffer = await generateServiceReportPdfV1(pdfPayload, { theme: "light" });
       } catch (pdfError) {
         logger.error("sendServiceReport pdf generation error", pdfError);
       }
@@ -1030,13 +1085,14 @@ exports.sendServiceReport = onRequest(
         return Number.isNaN(candidate.getTime()) ? "Not recorded" : candidate.toLocaleString("en-ZA");
       };
 
-      const followUpSummary = reportDoc.followUpRequired
+      const followUpStatusLabel = reportDoc.followUpRequired ? "Yes" : "No";
+      const followUpNotesSummary = reportDoc.followUpRequired
         ? displayValue(reportDoc.followUpNotes, "Follow-up required – details pending.")
         : "No follow-up required";
 
       const pdfAttachment = pdfBuffer
         ? {
-            filename: `MG-SERVICE-REPORT-${reportNumber}.pdf`,
+            filename: `${reportNumber || "service-report"}.pdf`,
             content: pdfBuffer,
             contentType: "application/pdf",
           }
@@ -1050,83 +1106,99 @@ exports.sendServiceReport = onRequest(
           auth: { user, pass },
         });
 
-        const attachments = [buildLogoAttachment()];
-        if (pdfAttachment) {
-          attachments.push(pdfAttachment);
-        }
+        const attachmentBuilder = () => {
+          const files = [buildLogoAttachment()];
+          if (pdfAttachment) {
+            files.push(pdfAttachment);
+          }
+          return files;
+        };
 
         const adminHtml = buildEmailTemplate({
-          title: "Service Report Sent",
-          intro: "A new service report has been compiled and emailed to the client.",
+          title: "Service Report Filed",
+          intro: "Internal copy for records. The attached PDF mirrors the client-facing report.",
           rows: [
-            { label: "Client", value: reportDoc.client.name },
             { label: "Service", value: reportDoc.serviceName },
+            { label: "Client", value: displayValue(reportDoc.client.name, "Client") },
+            { label: "Visit Date", value: formatDateForEmail(reportDoc.visitDate) },
             { label: "Technician", value: displayValue(reportDoc.technicianName, "Not recorded") },
-            { label: "Visit Date", value: formatDateForEmail(visitDate) },
-            { label: "Report #", value: reportNumber },
+            { label: "Follow-Up Required", value: followUpStatusLabel },
+            { label: "Follow-Up Notes", value: followUpNotesSummary },
           ],
-          footerNote: followUpSummary,
-        });
-
-        const clientIntro = [
-          `Hi ${displayValue(reportDoc.client.name, "there")},`,
-          "Thank you for choosing Myriad Green. We have attached the detailed service report from your recent visit.",
-        ].join("\n\n");
-
-        const clientHtml = buildEmailTemplate({
-          title: "Your Service Report",
-          intro: clientIntro,
-          rows: [
-            { label: "Report #", value: reportNumber },
-            { label: "Service", value: reportDoc.serviceName },
-            { label: "Technician", value: displayValue(reportDoc.technicianName, "Not recorded") },
-            { label: "Visit Date", value: formatDateForEmail(visitDate) },
-            { label: "Follow-Up", value: followUpSummary },
-          ],
-          footerNote: "Review the attached PDF for full findings, actions, and next steps. Reply if you have any questions.",
+          footerNote: `Report #: ${reportNumber}`,
         });
 
         const adminText = [
-          "New service report sent.",
-          `Client: ${reportDoc.client.name}`,
+          "Internal copy of service report.",
           `Service: ${reportDoc.serviceName}`,
+          `Client: ${displayValue(reportDoc.client.name, "Client")}`,
+          `Visit Date: ${formatDateForEmail(reportDoc.visitDate)}`,
           `Technician: ${displayValue(reportDoc.technicianName, "Not recorded")}`,
-          `Visit Date: ${formatDateForEmail(visitDate)}`,
+          `Follow-Up Required: ${followUpStatusLabel}`,
+          `Follow-Up Notes: ${followUpNotesSummary}`,
           `Report #: ${reportNumber}`,
-          `Follow-Up: ${followUpSummary}`,
         ].join("\n");
 
-        const clientText = [
-          `Hi ${reportDoc.client.name},`,
-          "Thanks for choosing Myriad Green. Your detailed service report is attached as a PDF.",
-          `Service: ${reportDoc.serviceName}`,
-          `Technician: ${displayValue(reportDoc.technicianName, "Not recorded")}`,
-          `Visit Date: ${formatDateForEmail(visitDate)}`,
-          `Report #: ${reportNumber}`,
-          `Follow-Up: ${followUpSummary}`,
-          "Reply to this email if you need any clarifications.",
-        ].join("\n");
+        const adminMailOptions = {
+          from: `"Myriad Green" <${user}>`,
+          to: internalRecipient,
+          subject: `Service Report – ${reportDoc.serviceName} – ${displayValue(
+            reportDoc.client.name,
+            "Client"
+          )} – ${reportNumber}`,
+          text: adminText,
+          html: adminHtml,
+          attachments: attachmentBuilder(),
+        };
+
+        const hasClientEmail = typeof reportDoc.client.email === "string" && reportDoc.client.email.trim().length > 0;
+        const mailPromises = [sendEmailWithRetry(transporter, adminMailOptions)];
+
+        const clientIntro = [
+          `Hi ${displayValue(reportDoc.client.name, "there")},`,
+          "Thank you for the recent visit. Your detailed service report is attached for easy reference.",
+        ].join("\n\n");
+
+        if (hasClientEmail) {
+          const clientHtml = buildEmailTemplate({
+            title: "Your Service Report",
+            intro: clientIntro,
+            rows: [
+              { label: "Service", value: reportDoc.serviceName },
+              { label: "Visit Date", value: formatDateForEmail(reportDoc.visitDate) },
+              { label: "Technician", value: displayValue(reportDoc.technicianName, "Not recorded") },
+              { label: "Follow-Up", value: `${followUpStatusLabel} – ${followUpNotesSummary}` },
+              { label: "Report #", value: reportNumber },
+            ],
+            footerNote: "Please review the attached PDF for the full findings and recommended next steps.",
+          });
+
+          const clientText = [
+            `Hi ${displayValue(reportDoc.client.name, "there")},`,
+            "Thanks for choosing Myriad Green. Your full service report is attached as a PDF.",
+            `Service: ${reportDoc.serviceName}`,
+            `Visit Date: ${formatDateForEmail(reportDoc.visitDate)}`,
+            `Technician: ${displayValue(reportDoc.technicianName, "Not recorded")}`,
+            `Follow-Up: ${followUpStatusLabel} – ${followUpNotesSummary}`,
+            `Report #: ${reportNumber}`,
+            "Reply to this email if you have any questions or updates.",
+          ].join("\n");
+
+          const clientMailOptions = {
+            from: `"Myriad Green" <${user}>`,
+            to: reportDoc.client.email,
+            replyTo: user,
+            subject: `Your Service Report – ${reportDoc.serviceName} – ${reportNumber}`,
+            text: clientText,
+            html: clientHtml,
+            attachments: attachmentBuilder(),
+          };
+
+          mailPromises.push(sendEmailWithRetry(transporter, clientMailOptions));
+        }
 
         try {
-          await Promise.all([
-            transporter.sendMail({
-              from: `"Myriad Green" <${user}>`,
-              to: internalRecipient,
-              subject: `Service Report Sent – ${reportDoc.client.name} (${reportDoc.serviceName})`,
-              text: adminText,
-              html: adminHtml,
-              attachments,
-            }),
-            transporter.sendMail({
-              from: `"Myriad Green" <${user}>`,
-              to: reportDoc.client.email,
-              replyTo: user,
-              subject: `Your Service Report – ${reportDoc.serviceName}`,
-              text: clientText,
-              html: clientHtml,
-              attachments,
-            }),
-          ]);
+          await Promise.all(mailPromises);
         } catch (mailError) {
           logger.error("sendServiceReport email error", mailError);
         }
