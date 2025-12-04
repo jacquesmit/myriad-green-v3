@@ -5,7 +5,7 @@ const logger = require("firebase-functions/logger");
 const nodemailer = require("nodemailer");
 const path = require("path");
 const { buildEmailTemplate } = require("./email/sharedTemplate");
-const { generateBookingPdf, generateBookingPdfV2, generateQuotePdfV1 } = require("./pdf");
+const { generateBookingPdf, generateBookingPdfV2, generateQuotePdfV1, generateInvoicePdfV1 } = require("./pdf");
 
 const GMAIL_USER = defineSecret("GMAIL_USER");
 const GMAIL_PASS = defineSecret("GMAIL_PASS");
@@ -647,6 +647,225 @@ exports.sendQuote = onRequest(
       res.status(200).json({ ok: true, reference });
     } catch (error) {
       logger.error("sendQuote error", error);
+      res.status(500).json({ error: "Internal error" });
+    }
+  }
+);
+
+exports.sendInvoice = onRequest(
+  { region: "africa-south1", cors: true, secrets: [GMAIL_USER, GMAIL_PASS, GMAIL_TO] },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    const invoicePayload = req.body?.invoice || req.body || {};
+    const {
+      invoiceNumber: providedInvoiceNumber,
+      reference,
+      issuedAt: issuedAtInput,
+      dueAt: dueAtInput,
+      serviceName,
+      clientName,
+      clientEmail,
+      clientPhone,
+      clientAddress,
+      suburb,
+      city,
+      province,
+      items,
+      subtotal,
+      vatAmount,
+      totalAmount,
+      notes,
+      paymentInstructions,
+    } = invoicePayload;
+
+    const requiredFieldsPresent =
+      [clientName, clientEmail, serviceName].every((value) => typeof value === "string" && value.trim().length > 0) &&
+      Array.isArray(items) &&
+      items.length > 0 &&
+      Number.isFinite(Number(totalAmount));
+
+    if (!requiredFieldsPresent) {
+      res.status(400).json({ error: "Missing required fields" });
+      return;
+    }
+
+    const normalizeDate = (input, fallback = null) => {
+      if (!input) {
+        return fallback;
+      }
+      const candidate = typeof input.toDate === "function" ? input.toDate() : new Date(input);
+      return Number.isNaN(candidate.getTime()) ? fallback : candidate;
+    };
+
+    const issuedAt = normalizeDate(issuedAtInput, new Date());
+    const dueAt = dueAtInput ? normalizeDate(dueAtInput) : undefined;
+
+    try {
+      const invoiceDoc = {
+        invoiceNumber: providedInvoiceNumber ? String(providedInvoiceNumber).trim() : null,
+        reference: reference ? String(reference).trim() : null,
+        serviceName: String(serviceName).trim(),
+        client: {
+          name: String(clientName).trim(),
+          email: String(clientEmail).trim(),
+          phone: clientPhone ? String(clientPhone).trim() : null,
+          address: clientAddress || null,
+          suburb: suburb || null,
+          city: city || null,
+          province: province || null,
+        },
+        items: Array.isArray(items) ? items : [],
+        subtotal: Number(subtotal) || 0,
+        vatAmount: vatAmount != null ? Number(vatAmount) : null,
+        totalAmount: Number(totalAmount) || 0,
+        notes: notes || null,
+        paymentInstructions: paymentInstructions || null,
+        status: "sent",
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        issuedAt,
+        dueAt: dueAt || null,
+      };
+
+      const docRef = await admin.firestore().collection("invoices").add(invoiceDoc);
+      let invoiceNumber = invoiceDoc.invoiceNumber;
+      if (!invoiceNumber) {
+        invoiceNumber = docRef.id;
+        await docRef.update({ invoiceNumber });
+      }
+
+      const invoiceForPdf = {
+        invoiceNumber,
+        reference,
+        serviceName: invoiceDoc.serviceName,
+        clientName: invoiceDoc.client.name,
+        clientEmail: invoiceDoc.client.email,
+        clientPhone: invoiceDoc.client.phone,
+        clientAddress: invoiceDoc.client.address,
+        suburb,
+        city,
+        province,
+        issuedAt,
+        dueAt,
+        items: invoiceDoc.items,
+        subtotal: invoiceDoc.subtotal,
+        vatAmount: invoiceDoc.vatAmount,
+        totalAmount: invoiceDoc.totalAmount,
+        notes: invoiceDoc.notes,
+        paymentInstructions: invoiceDoc.paymentInstructions,
+      };
+
+      let pdfBuffer = null;
+      try {
+        pdfBuffer = await generateInvoicePdfV1(invoiceForPdf);
+      } catch (pdfError) {
+        logger.error("sendInvoice pdf generation error", pdfError);
+      }
+
+      const user = GMAIL_USER.value();
+      const pass = GMAIL_PASS.value();
+      const internalRecipient = GMAIL_TO.value() || user;
+
+      const formatCurrency = (value) => {
+        const numeric = Number(value);
+        return Number.isFinite(numeric) ? `R ${numeric.toFixed(2)}` : displayValue(value);
+      };
+
+      const pdfAttachment = pdfBuffer
+        ? {
+            filename: `MG-INVOICE-${invoiceNumber}.pdf`,
+            content: pdfBuffer,
+            contentType: "application/pdf",
+          }
+        : null;
+
+      if (!user || !pass) {
+        logger.error("sendInvoice email skipped: missing Gmail credentials");
+      } else {
+        const transporter = nodemailer.createTransport({
+          service: "gmail",
+          auth: { user, pass },
+        });
+
+        const attachments = [buildLogoAttachment()];
+        if (pdfAttachment) {
+          attachments.push(pdfAttachment);
+        }
+
+        const adminHtml = buildEmailTemplate({
+          title: "New Invoice Sent",
+          intro: "A new invoice has been generated and emailed to the client.",
+          rows: [
+            { label: "Client", value: invoiceDoc.client.name },
+            { label: "Service", value: invoiceDoc.serviceName },
+            { label: "Total", value: formatCurrency(invoiceDoc.totalAmount) },
+            { label: "Invoice #", value: invoiceNumber },
+          ],
+          footerNote: "Log this invoice and follow up on payment before the due date.",
+        });
+
+        const clientHtml = buildEmailTemplate({
+          title: "Your Invoice from Myriad Green",
+          intro: "Thank you for your business. Please find your invoice attached.",
+          rows: [
+            { label: "Invoice #", value: invoiceNumber },
+            { label: "Service", value: invoiceDoc.serviceName },
+            { label: "Total", value: formatCurrency(invoiceDoc.totalAmount) },
+            { label: "Issued", value: issuedAt.toLocaleString("en-ZA") },
+            { label: "Due", value: dueAt ? dueAt.toLocaleString("en-ZA") : "On receipt" },
+          ],
+          footerNote: invoiceDoc.paymentInstructions || "Please settle this invoice at your earliest convenience.",
+        });
+
+        const adminText = [
+          "New invoice sent.",
+          `Client: ${invoiceDoc.client.name}`,
+          `Service: ${invoiceDoc.serviceName}`,
+          `Total: ${formatCurrency(invoiceDoc.totalAmount)}`,
+          `Invoice #: ${invoiceNumber}`,
+        ].join("\n");
+
+        const clientText = [
+          `Hi ${invoiceDoc.client.name},`,
+          "Thank you for your business with Myriad Green. Your invoice is attached as a PDF.",
+          `Service: ${invoiceDoc.serviceName}`,
+          `Total: ${formatCurrency(invoiceDoc.totalAmount)}`,
+          `Invoice #: ${invoiceNumber}`,
+          `Due: ${dueAt ? dueAt.toLocaleDateString("en-ZA") : "On receipt"}`,
+          "Please refer to the payment instructions inside the attachment.",
+        ].join("\n");
+
+        try {
+          await Promise.all([
+            transporter.sendMail({
+              from: `"Myriad Green" <${user}>`,
+              to: internalRecipient,
+              subject: `New Invoice Sent – ${invoiceDoc.client.name} (${invoiceDoc.serviceName})`,
+              text: adminText,
+              html: adminHtml,
+              attachments,
+            }),
+            transporter.sendMail({
+              from: `"Myriad Green" <${user}>`,
+              to: invoiceDoc.client.email,
+              replyTo: user,
+              subject: `Your Invoice – ${invoiceDoc.serviceName}`,
+              text: clientText,
+              html: clientHtml,
+              attachments,
+            }),
+          ]);
+        } catch (mailError) {
+          logger.error("sendInvoice email error", mailError);
+        }
+      }
+
+      res.status(200).json({ ok: true, invoiceNumber });
+    } catch (error) {
+      logger.error("sendInvoice error", error);
       res.status(500).json({ error: "Internal error" });
     }
   }
