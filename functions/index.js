@@ -1155,9 +1155,12 @@ exports.sendServiceReport = onRequest(
         const mailPromises = [sendEmailWithRetry(transporter, adminMailOptions)];
 
         const clientIntro = [
-          `Hi ${displayValue(reportDoc.client.name, "there")},`,
-          "Thank you for the recent visit. Your detailed service report is attached for easy reference.",
-        ].join("\n\n");
+          `Hi ${displayValue(reportDoc.client.name, "there")},<br><br>`,
+          "Thank you for allowing Myriad Green to assist you on site today.<br>",
+          "It was a pleasure working with you and assessing your irrigation system.<br>",
+          "Your detailed service report is attached for easy reference, including our findings,<br>",
+          "actions taken, and recommended next steps tailored specifically to your property.<br><br>",
+        ].join("");
 
         if (hasClientEmail) {
           const clientHtml = buildEmailTemplate({
@@ -1170,7 +1173,10 @@ exports.sendServiceReport = onRequest(
               { label: "Follow-Up", value: `${followUpStatusLabel} – ${followUpNotesSummary}` },
               { label: "Report #", value: reportNumber },
             ],
-            footerNote: "Please review the attached PDF for the full findings and recommended next steps.",
+            footerNote:
+              "If you have any questions or would like to schedule follow-up assistance,<br>" +
+              "we’re here to help anytime. Thank you again for choosing Myriad Green —<br>" +
+              "we truly appreciate the opportunity to support your home’s water systems.<br><br>",
           });
 
           const clientText = [
