@@ -18,6 +18,51 @@ const GMAIL_USER = defineSecret("GMAIL_USER");
 const GMAIL_PASS = defineSecret("GMAIL_PASS");
 const GMAIL_TO = defineSecret("GMAIL_TO");
 
+const SERVICE_COPY = Object.freeze({
+  irrigation: {
+    assessmentSentence:
+      "We assessed your irrigation system, including key zones, pressure behaviour, and controller scheduling.",
+  },
+  "leak-detection": {
+    assessmentSentence:
+      "We inspected the property for leaks and assessed water-system pressure behaviour based on the findings on site.",
+  },
+  "drain-unblocking": {
+    assessmentSentence:
+      "We assessed the affected drainage lines and confirmed flow and obstruction points based on the site conditions.",
+  },
+  "backup-water-systems": {
+    assessmentSentence:
+      "We assessed your backup water setup, including supply continuity considerations and the system configuration on site.",
+  },
+});
+
+const DEFAULT_SERVICE_ASSESSMENT_SENTENCE =
+  "We assessed the serviced area and documented our findings based on the site conditions.";
+
+function toServiceId(serviceName) {
+  const normalized = String(serviceName ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+
+  return normalized || "unknown";
+}
+
+function buildServiceReportIntro({ greetingName, serviceId } = {}) {
+  const record = SERVICE_COPY[String(serviceId ?? "")] ?? null;
+  const assessmentSentence = record?.assessmentSentence || DEFAULT_SERVICE_ASSESSMENT_SENTENCE;
+
+  return [
+    `Hi ${displayValue(greetingName, "there")},`,
+    "",
+    "Thank you for allowing Myriad Green to assist you on site today.",
+    assessmentSentence,
+    "Your detailed service report is attached for easy reference, including our findings, actions taken, and recommended next steps tailored specifically to your property.",
+  ].join("\n");
+}
+
 const LOGO_CID = "myriadgreenlogo@inline";
 const LOGO_PATH = path.join(__dirname, "assets", "myriad_green_logo.png");
 const buildLogoAttachment = () => ({
@@ -43,7 +88,12 @@ const displayValue = (value, fallback = "Not provided") => {
 };
 
 const htmlValue = (value, fallback) => escapeHtml(displayValue(value, fallback));
-const htmlMultiline = (value, fallback) => htmlValue(value, fallback).replace(/\n/g, "<br/>");
+const htmlMultiline = (value, fallback) => {
+  let normalized = String(displayValue(value, fallback) ?? "");
+  normalized = normalized.replace(/<br\s*\/?>/gi, "\n");
+  normalized = normalized.replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  return escapeHtml(normalized).replace(/\n/g, "<br/>");
+};
 
 const buildDetailRows = (rows) =>
   rows
@@ -1086,9 +1136,17 @@ exports.sendServiceReport = onRequest(
       };
 
       const followUpStatusLabel = reportDoc.followUpRequired ? "Yes" : "No";
-      const followUpNotesSummary = reportDoc.followUpRequired
-        ? displayValue(reportDoc.followUpNotes, "Follow-up required – details pending.")
-        : "No follow-up required";
+      const normalizedClientName = sanitizeEmailText(normalizeForEmail(reportDoc.client?.name));
+      const normalizedTechnicianName = sanitizeEmailText(normalizeForEmail(reportDoc.technicianName));
+      const normalizedFollowUpNotes = sanitizeEmailText(normalizeForEmail(reportDoc.followUpNotes));
+
+      const followUpNotesSummary = sanitizeEmailText(
+        normalizeForEmail(
+          reportDoc.followUpRequired
+            ? displayValue(normalizedFollowUpNotes, "Follow-up required – details pending.")
+            : "No follow-up required"
+        )
+      );
 
       const pdfAttachment = pdfBuffer
         ? {
@@ -1116,24 +1174,26 @@ exports.sendServiceReport = onRequest(
 
         const adminHtml = buildEmailTemplate({
           title: "Service Report Filed",
-          intro: "Internal copy for records. The attached PDF mirrors the client-facing report.",
+          intro: sanitizeEmailText(
+            "Internal copy for records. The attached PDF mirrors the client-facing report."
+          ),
           rows: [
             { label: "Service", value: reportDoc.serviceName },
-            { label: "Client", value: displayValue(reportDoc.client.name, "Client") },
+            { label: "Client", value: sanitizeEmailText(displayValue(normalizedClientName, "Client")) },
             { label: "Visit Date", value: formatDateForEmail(reportDoc.visitDate) },
-            { label: "Technician", value: displayValue(reportDoc.technicianName, "Not recorded") },
+            { label: "Technician", value: sanitizeEmailText(displayValue(normalizedTechnicianName, "Not recorded")) },
             { label: "Follow-Up Required", value: followUpStatusLabel },
-            { label: "Follow-Up Notes", value: followUpNotesSummary },
+            { label: "Follow-Up Notes", value: sanitizeEmailText(followUpNotesSummary) },
           ],
-          footerNote: `Report #: ${reportNumber}`,
+          footerNote: sanitizeEmailText(`Report #: ${reportNumber}`),
         });
 
         const adminText = [
           "Internal copy of service report.",
           `Service: ${reportDoc.serviceName}`,
-          `Client: ${displayValue(reportDoc.client.name, "Client")}`,
+          `Client: ${displayValue(normalizedClientName, "Client")}`,
           `Visit Date: ${formatDateForEmail(reportDoc.visitDate)}`,
-          `Technician: ${displayValue(reportDoc.technicianName, "Not recorded")}`,
+          `Technician: ${displayValue(normalizedTechnicianName, "Not recorded")}`,
           `Follow-Up Required: ${followUpStatusLabel}`,
           `Follow-Up Notes: ${followUpNotesSummary}`,
           `Report #: ${reportNumber}`,
@@ -1154,41 +1214,50 @@ exports.sendServiceReport = onRequest(
         const hasClientEmail = typeof reportDoc.client.email === "string" && reportDoc.client.email.trim().length > 0;
         const mailPromises = [sendEmailWithRetry(transporter, adminMailOptions)];
 
-        const clientIntro = [
-          `Hi ${displayValue(reportDoc.client.name, "there")},<br><br>`,
-          "Thank you for allowing Myriad Green to assist you on site today.<br>",
-          "It was a pleasure working with you and assessing your irrigation system.<br>",
-          "Your detailed service report is attached for easy reference, including our findings,<br>",
-          "actions taken, and recommended next steps tailored specifically to your property.<br><br>",
-        ].join("");
-
         if (hasClientEmail) {
+          const clientGreetingName = sanitizeEmailText(normalizeForEmail(displayValue(normalizedClientName, "there")));
+          const serviceId = toServiceId(reportDoc.serviceName);
+          const clientIntro = sanitizeEmailText(
+            normalizeForEmail(
+              buildServiceReportIntro({
+                greetingName: clientGreetingName,
+                serviceId,
+              })
+            )
+          );
+
+          const clientFooterNote = sanitizeEmailText(normalizeForEmail([
+            "If you have any questions or would like to schedule follow-up assistance, we’re here to help anytime.",
+            "",
+            "Thank you again for choosing Myriad Green — we truly appreciate the opportunity to support your home’s water systems.",
+          ].join("\n")));
+
           const clientHtml = buildEmailTemplate({
             title: "Your Service Report",
             intro: clientIntro,
             rows: [
               { label: "Service", value: reportDoc.serviceName },
               { label: "Visit Date", value: formatDateForEmail(reportDoc.visitDate) },
-              { label: "Technician", value: displayValue(reportDoc.technicianName, "Not recorded") },
-              { label: "Follow-Up", value: `${followUpStatusLabel} – ${followUpNotesSummary}` },
+              { label: "Technician", value: sanitizeEmailText(displayValue(normalizedTechnicianName, "Not recorded")) },
+              {
+                label: "Follow-Up",
+                value: sanitizeEmailText(normalizeForEmail(`${followUpStatusLabel} – ${followUpNotesSummary}`)),
+              },
               { label: "Report #", value: reportNumber },
             ],
-            footerNote:
-              "If you have any questions or would like to schedule follow-up assistance,<br>" +
-              "we’re here to help anytime. Thank you again for choosing Myriad Green —<br>" +
-              "we truly appreciate the opportunity to support your home’s water systems.<br><br>",
+            footerNote: clientFooterNote,
           });
 
-          const clientText = [
-            `Hi ${displayValue(reportDoc.client.name, "there")},`,
+          const clientText = stripHtmlTagsForEmailText(normalizeForEmail([
+            `Hi ${clientGreetingName || "there"},`,
             "Thanks for choosing Myriad Green. Your full service report is attached as a PDF.",
             `Service: ${reportDoc.serviceName}`,
             `Visit Date: ${formatDateForEmail(reportDoc.visitDate)}`,
-            `Technician: ${displayValue(reportDoc.technicianName, "Not recorded")}`,
-            `Follow-Up: ${followUpStatusLabel} – ${followUpNotesSummary}`,
+            `Technician: ${displayValue(normalizedTechnicianName, "Not recorded")}`,
+            `Follow-Up: ${normalizeForEmail(`${followUpStatusLabel} – ${followUpNotesSummary}`)}`,
             `Report #: ${reportNumber}`,
             "Reply to this email if you have any questions or updates.",
-          ].join("\n");
+          ].join("\n")));
 
           const clientMailOptions = {
             from: `"Myriad Green" <${user}>`,
@@ -1217,3 +1286,36 @@ exports.sendServiceReport = onRequest(
     }
   }
 );
+
+function normalizeForEmail(value = "") {
+  return String(value ?? "")
+    .replace(/&amp;lt;br\s*\/??&amp;gt;/gi, "\n")
+    .replace(/&lt;br\s*\/??&gt;/gi, "\n")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n")
+    .split("\n")
+    .map((line) => line.trimEnd())
+    .join("\n")
+    .trim();
+}
+
+function sanitizeEmailText(value = "") {
+  return String(value ?? "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+}
+
+function stripHtmlTagsForEmailText(value = "") {
+  return String(value ?? "").replace(/<[^>\n]*>/g, "");
+}
+
+function forceNoVisibleBr(html = "") {
+  return String(html ?? "")
+    .replace(/&amp;lt;br\s*\/??&amp;gt;/gi, "<br/>")
+    .replace(/&lt;br\s*\/?&gt;/gi, "<br/>")
+    .replace(/<br\s*>/gi, "<br/>")
+    .replace(/<br\s*\/>/gi, "<br/>")
+    .replace(/(<br\/>\s*){3,}/gi, "<br/><br/>");
+}

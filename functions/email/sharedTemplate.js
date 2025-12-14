@@ -15,7 +15,17 @@ const displayValue = (value, fallback = "") => {
 };
 
 const htmlValue = (value, fallback) => escapeHtml(displayValue(value, fallback));
-const htmlMultiline = (value, fallback) => htmlValue(value, fallback).replace(/\n/g, "<br/>");
+const htmlMultiline = (value, fallback) => {
+  const raw = String(displayValue(value, fallback) ?? "")
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/\r\n/g, "\n")
+    .replace(/\r/g, "\n");
+
+  return raw
+    .split("\n")
+    .map((line) => htmlValue(line))
+    .join("<br/>");
+};
 
 const buildDetailRows = (rows) =>
   rows
