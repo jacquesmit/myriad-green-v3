@@ -53,7 +53,7 @@ const buildDetailTable = (rows) => {
   `;
 };
 
-function buildEmailTemplate({ title, intro, rows = [], footerNote } = {}) {
+function buildEmailTemplate({ title, intro, rows = [], footerNote, cta } = {}) {
   const titleBlock = `<h1 style="margin:0 0 12px; font-size:20px; color:#0f172a;">${htmlValue(
     title,
     "Myriad Green Update"
@@ -65,11 +65,29 @@ function buildEmailTemplate({ title, intro, rows = [], footerNote } = {}) {
 
   const rowsBlock = buildDetailTable(rows);
 
+  const ctaBlock =
+    cta && typeof cta.url === "string" && /^(https?:\/\/)/i.test(cta.url)
+      ? `
+      <!-- SR_CTA_RENDERED -->
+      <table cellspacing="0" cellpadding="0" style="margin:16px 0 0;">
+        <tr>
+          <td style="border-radius:12px;" bgcolor="#16a34a">
+            <a href="${cta.url}" target="_blank" rel="noopener noreferrer"
+              style="display:inline-block; padding:12px 16px; font-size:13px; font-weight:700; color:#ffffff; text-decoration:none; border-radius:12px;">
+              ${htmlValue(cta.label, "View service")}
+            </a>
+          </td>
+        </tr>
+      </table>`
+      : "";
+
   const footerBlock = footerNote
     ? `<p style="margin:20px 0 0; font-size:12px; color:#4b5563;">${htmlMultiline(footerNote, "")}</p>`
     : "";
 
-  const content = [titleBlock, introBlock, rowsBlock, footerBlock].filter(Boolean).join("\n");
+  const content = [titleBlock, introBlock, rowsBlock, ctaBlock, footerBlock]
+    .filter(Boolean)
+    .join("\n");
 
   return `<!DOCTYPE html>
 <html lang="en">
@@ -80,6 +98,7 @@ function buildEmailTemplate({ title, intro, rows = [], footerNote } = {}) {
   <title>Myriad Green</title>
 </head>
 <body style="margin:0; padding:0; background:#f1f5f9;">
+  <!-- SR_CTA_STAMP_V1 -->
   <div style="background:#f1f5f9; padding:24px 0;">
     <table width="100%" cellspacing="0" cellpadding="0" style="max-width:640px; margin:0 auto; background:#ffffff; border-radius:20px; overflow:hidden; border:1px solid #e2e8f0; font-family:'Segoe UI', Arial, sans-serif;">
       <tr>

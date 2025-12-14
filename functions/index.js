@@ -18,6 +18,17 @@ const GMAIL_USER = defineSecret("GMAIL_USER");
 const GMAIL_PASS = defineSecret("GMAIL_PASS");
 const GMAIL_TO = defineSecret("GMAIL_TO");
 
+const SITE_BASE_URL = process.env.SITE_BASE_URL || "https://www.myriadgreen.co.za";
+const joinUrl = (base, path) =>
+  `${String(base).replace(/\/+$/g, "")}/${String(path || "").replace(/^\/+/, "")}`;
+
+const SERVICE_CTA = {
+  Irrigation: { label: "View Irrigation Service", path: "/services/irrigation.html" },
+  "Leak Detection": { label: "View Leak Detection Service", path: "/services/leak-detection.html" },
+  "Drain Unblocking": { label: "View Drain Unblocking Service", path: "/services/drain-unblocking.html" },
+  "Backup Water Systems": { label: "View Backup Water Systems", path: "/services/backup-water.html" },
+};
+
 const SERVICE_COPY = Object.freeze({
   irrigation: {
     assessmentSentence:
@@ -1140,6 +1151,9 @@ exports.sendServiceReport = onRequest(
       const normalizedTechnicianName = sanitizeEmailText(normalizeForEmail(reportDoc.technicianName));
       const normalizedFollowUpNotes = sanitizeEmailText(normalizeForEmail(reportDoc.followUpNotes));
 
+      const ctaCfg = SERVICE_CTA[serviceName];
+      const serviceUrl = ctaCfg ? joinUrl(SITE_BASE_URL, ctaCfg.path) : "";
+
       const followUpNotesSummary = sanitizeEmailText(
         normalizeForEmail(
           reportDoc.followUpRequired
@@ -1185,6 +1199,7 @@ exports.sendServiceReport = onRequest(
             { label: "Follow-Up Required", value: followUpStatusLabel },
             { label: "Follow-Up Notes", value: sanitizeEmailText(followUpNotesSummary) },
           ],
+          cta: ctaCfg ? { label: `View ${serviceName}`, url: serviceUrl } : undefined,
           footerNote: sanitizeEmailText(`Report #: ${reportNumber}`),
         });
 
@@ -1205,7 +1220,7 @@ exports.sendServiceReport = onRequest(
           subject: `Service Report – ${reportDoc.serviceName} – ${displayValue(
             reportDoc.client.name,
             "Client"
-          )} – ${reportNumber}`,
+          )} – ${reportNumber} [SR_CTA_V1]`,
           text: adminText,
           html: adminHtml,
           attachments: attachmentBuilder(),
@@ -1245,25 +1260,36 @@ exports.sendServiceReport = onRequest(
               },
               { label: "Report #", value: reportNumber },
             ],
+            cta: ctaCfg ? { label: `View ${serviceName}`, url: serviceUrl } : undefined,
             footerNote: clientFooterNote,
           });
 
-          const clientText = stripHtmlTagsForEmailText(normalizeForEmail([
-            `Hi ${clientGreetingName || "there"},`,
-            "Thanks for choosing Myriad Green. Your full service report is attached as a PDF.",
-            `Service: ${reportDoc.serviceName}`,
-            `Visit Date: ${formatDateForEmail(reportDoc.visitDate)}`,
-            `Technician: ${displayValue(normalizedTechnicianName, "Not recorded")}`,
-            `Follow-Up: ${normalizeForEmail(`${followUpStatusLabel} – ${followUpNotesSummary}`)}`,
-            `Report #: ${reportNumber}`,
-            "Reply to this email if you have any questions or updates.",
-          ].join("\n")));
+          const followUpText = normalizeForEmail(`${followUpStatusLabel} – ${followUpNotesSummary}`);
+          const reportId = reportNumber;
+          const technicianName = displayValue(normalizedTechnicianName, "Not recorded");
+          const visitDate = formatDateForEmail(reportDoc.visitDate);
+          const clientName = clientGreetingName || "there";
+
+          const textLines = [
+            `Hi ${clientName},`,
+            `Thanks for choosing Myriad Green. Your full service report is attached as a PDF.`,
+            `Service: ${serviceName}`,
+            `Visit Date: ${visitDate}`,
+            `Technician: ${technicianName}`,
+            `Follow-Up: ${followUpText}`,
+            `Report #: ${reportId}`,
+            serviceUrl ? `Service page: ${serviceUrl}` : "",
+            `Reply to this email if you have any questions or updates.`,
+          ].filter(Boolean);
+          const textBody = textLines.join("\n");
+
+          const clientText = stripHtmlTagsForEmailText(textBody);
 
           const clientMailOptions = {
             from: `"Myriad Green" <${user}>`,
             to: reportDoc.client.email,
             replyTo: user,
-            subject: `Your Service Report – ${reportDoc.serviceName} – ${reportNumber}`,
+            subject: `Your Service Report – ${reportDoc.serviceName} – ${reportNumber} [SR_CTA_V1]`,
             text: clientText,
             html: clientHtml,
             attachments: attachmentBuilder(),
