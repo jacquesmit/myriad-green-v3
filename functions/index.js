@@ -5,6 +5,7 @@ const { FieldValue } = require("firebase-admin/firestore");
 const logger = require("firebase-functions/logger");
 const nodemailer = require("nodemailer");
 const path = require("path");
+const Stripe = require("stripe");
 const { buildEmailTemplate } = require("./email/sharedTemplate");
 const {
   generateBookingPdf,
@@ -18,7 +19,17 @@ const GMAIL_USER = defineSecret("GMAIL_USER");
 const GMAIL_PASS = defineSecret("GMAIL_PASS");
 const GMAIL_TO = defineSecret("GMAIL_TO");
 
+// stripe & smtp secrets (configured via `firebase functions:secrets:set`)
+const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
+const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
+const SMTP_HOST = defineSecret("SMTP_HOST");
+const SMTP_PORT = defineSecret("SMTP_PORT");
+const SMTP_USER = defineSecret("SMTP_USER");
+const SMTP_PASS = defineSecret("SMTP_PASS");
+const ADMIN_EMAIL = defineSecret("ADMIN_EMAIL");
+
 const SITE_BASE_URL = process.env.SITE_BASE_URL || "https://www.myriadgreen.co.za";
+const BUSINESS_CONTACT = require("./shared/businessContact");
 const joinUrl = (base, path) =>
   `${String(base).replace(/\/+$/g, "")}/${String(path || "").replace(/^\/+/, "")}`;
 
@@ -28,6 +39,42 @@ const SERVICE_CTA = {
   "Drain Unblocking": { label: "View Drain Unblocking Service", path: "/services/drain-unblocking.html" },
   "Backup Water Systems": { label: "View Backup Water Systems", path: "/services/backup-water.html" },
 };
+
+// pricing configuration for emergency services (phase 1 foundation)
+const EMERGENCY_PRICING = {
+  services: {
+    "Leak Detection": 1650,
+    "Drain Unblocking": 1350,
+  },
+  suburbTiers: {
+    tier1: 0,
+    tier2: 200,
+    tier3: 400,
+  },
+};
+
+/**
+ * Calculate emergency service pricing based on service and suburb tier.
+ * @param {string} serviceName
+ * @param {string} suburbTier
+ * @returns {{basePrice:number,tierAdjustment:number,total:number,currency:string}}
+ */
+function calculateEmergencyPrice(serviceName, suburbTier) {
+  if (!EMERGENCY_PRICING.services[serviceName]) {
+    throw new Error("Invalid emergency service");
+  }
+
+  const basePrice = EMERGENCY_PRICING.services[serviceName];
+  const tierAdjustment =
+    EMERGENCY_PRICING.suburbTiers[suburbTier] ?? 0;
+
+  return {
+    basePrice,
+    tierAdjustment,
+    total: basePrice + tierAdjustment,
+    currency: "ZAR",
+  };
+}
 
 const SERVICE_COPY = Object.freeze({
   irrigation: {
@@ -150,7 +197,7 @@ const buildEmailShell = ({ headerRightTop, headerRightBottom, bodyHtml }) => `
       </tr>
       <tr>
         <td style="padding:16px 24px; background:#f8fafc; text-align:center; font-size:11px; color:#6b7280;">
-          Myriad Green · +27 81 721 6701 · irrigationsa@gmail.com · Gauteng, South Africa
+          Myriad Green · <a href="${BUSINESS_CONTACT.phoneTel}" style="color:inherit; text-decoration:none;">${BUSINESS_CONTACT.phoneDisplay}</a> · ${BUSINESS_CONTACT.email} · ${BUSINESS_CONTACT.location}
         </td>
       </tr>
     </table>
@@ -352,6 +399,16 @@ exports.createBooking = onRequest(
       return;
     }
 
+    // emergency services must go through the Stripe checkout flow
+    const emergencyServices = ["Leak Detection", "Drain Unblocking"];
+    if (emergencyServices.includes(String(service).trim())) {
+      res.status(400).json({
+        ok: false,
+        error: "Emergency services must be booked via the payment flow",
+      });
+      return;
+    }
+
     try {
       const bookingRecord = {
         name: String(name).trim(),
@@ -481,7 +538,7 @@ exports.createBooking = onRequest(
           formatLine("Address", bookingData.address || "To be confirmed"),
           "",
           "A PDF summary is attached for your records.",
-          "If you need to make changes, reply to this email or call +27 81 72 16701.",
+          `If you need to make changes, reply to this email or call ${BUSINESS_CONTACT.phoneDisplay}.`,
         ].join("\n");
 
         const clientHtml = buildEmailTemplate({
@@ -502,7 +559,7 @@ exports.createBooking = onRequest(
             { label: "Notes", value: bookingData.notes || "No additional notes were provided." },
             { label: "Reference", value: bookingData.bookingId || docRef.id || "-" },
           ],
-          footerNote: "We’ve attached a PDF summary for your records. If anything looks incorrect, reply to this email or contact us on +27 81 72 16701.",
+          footerNote: `We’ve attached a PDF summary for your records. If anything looks incorrect, reply to this email or contact us on ${BUSINESS_CONTACT.phoneDisplay}.`,
         });
 
         const buildBookingAttachments = () => {
@@ -709,7 +766,7 @@ exports.sendQuote = onRequest(
             { label: "Reference", value: reference },
             { label: "Prepared", value: preparedDate.toLocaleString("en-ZA") },
           ],
-          footerNote: "To approve this quote, reply to this email or call +27 81 72 16701.",
+          footerNote: `To approve this quote, reply to this email or call ${BUSINESS_CONTACT.phoneDisplay}.`,
         });
 
         const adminText = [
@@ -757,6 +814,237 @@ exports.sendQuote = onRequest(
       res.status(200).json({ ok: true, reference });
     } catch (error) {
       logger.error("sendQuote error", error);
+      res.status(500).json({ error: "Internal error" });
+    }
+  }
+);
+
+
+// ------------------------------------------------------
+// Stripe checkout + webhook for emergency booking flows
+// ------------------------------------------------------
+
+exports.createCheckoutSession = onRequest(
+  { region: "africa-south1", cors: true, secrets: [STRIPE_SECRET_KEY] },
+  async (req, res) => {
+    if (req.method !== "POST") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    const { service, name, email, phone, notes, preferredDate } = req.body || {};
+    const required = [service, name, email, phone];
+    const allFieldsPresent = required.every((v) => typeof v === "string" && v.trim().length);
+    if (!allFieldsPresent) {
+      res.status(400).json({ error: "Missing required booking fields" });
+      return;
+    }
+
+    const emergencyServices = ["Leak Detection", "Drain Unblocking"];
+    if (!emergencyServices.includes(service)) {
+      res.status(400).json({ error: "Service not eligible for checkout" });
+      return;
+    }
+
+    const basePrice = EMERGENCY_PRICING.services[service];
+    if (typeof basePrice !== "number") {
+      res.status(400).json({ error: "Invalid service pricing" });
+      return;
+    }
+
+    try {
+      const stripeClient = Stripe(STRIPE_SECRET_KEY.value());
+      const session = await stripeClient.checkout.sessions.create({
+        payment_method_types: ["card"],
+        mode: "payment",
+        line_items: [
+          {
+            price_data: {
+              currency: "zar",
+              product_data: { name: `${service} call-out fee` },
+              unit_amount: Math.round(basePrice * 100),
+            },
+            quantity: 1,
+          },
+        ],
+        metadata: {
+          service,
+          name,
+          email,
+          phone,
+          notes: notes || "",
+          preferredDate: preferredDate || "",
+        },
+        success_url: `${SITE_BASE_URL}/thank-you-order.html?session_id={CHECKOUT_SESSION_ID}`,
+        cancel_url: `${SITE_BASE_URL}/?booking=cancelled`,
+      });
+      res.status(200).json({ url: session.url });
+    } catch (err) {
+      logger.error("createCheckoutSession error", err);
+      res.status(500).json({ error: "Internal error" });
+    }
+  }
+);
+
+exports.stripeWebhook = onRequest(
+  { region: "africa-south1", cors: false, secrets: [STRIPE_WEBHOOK_SECRET, SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS, ADMIN_EMAIL, STRIPE_SECRET_KEY] },
+  async (req, res) => {
+    const raw = req.rawBody;
+    const sig = req.headers["stripe-signature"];
+    let event;
+    try {
+      const stripeClient = Stripe(STRIPE_SECRET_KEY.value());
+      event = stripeClient.webhooks.constructEvent(raw, sig, STRIPE_WEBHOOK_SECRET.value());
+    } catch (err) {
+      logger.error("Webhook signature verification failed", err.message);
+      return res.status(400).send(`Webhook Error: ${err.message}`);
+    }
+
+    if (event.type === "checkout.session.completed") {
+      const session = event.data.object;
+      if (session.payment_status === "paid") {
+        const id = session.id;
+        const bookingsRef = db.collection("bookings").doc(id);
+        const existing = await bookingsRef.get();
+        if (existing.exists) {
+          logger.info("stripeWebhook: booking already exists", id);
+          return res.status(200).send();
+        }
+
+        const metadata = session.metadata || {};
+        const bookingRecord = {
+          status: "paid",
+          createdAt: admin.firestore.FieldValue.serverTimestamp(),
+          service: metadata.service,
+          name: metadata.name,
+          email: metadata.email,
+          phone: metadata.phone,
+          notes: metadata.notes || null,
+          preferredDate: metadata.preferredDate || null,
+          amount: session.amount_total,
+          currency: session.currency,
+          stripeSessionId: id,
+        };
+
+        await bookingsRef.set(bookingRecord);
+
+        // send notifications
+        const smtpUser = SMTP_USER.value();
+        const smtpPass = SMTP_PASS.value();
+        const smtpHost = SMTP_HOST.value();
+        const smtpPort = Number(SMTP_PORT.value() || 587);
+        const adminEmail = ADMIN_EMAIL.value();
+
+        if (smtpUser && smtpPass && smtpHost && adminEmail) {
+          const transporter = nodemailer.createTransport({
+            host: smtpHost,
+            port: smtpPort,
+            secure: smtpPort === 465,
+            auth: { user: smtpUser, pass: smtpPass },
+          });
+
+          const serviceName = displayValue(bookingRecord.service);
+          const greetingName = displayValue(bookingRecord.name);
+
+          const adminHtml = buildEmailTemplate({
+            title: `NEW PAID BOOKING — ${serviceName}`,
+            intro: "A new paid booking was received via Stripe checkout.",
+            rows: [
+              { label: "Name", value: bookingRecord.name },
+              { label: "Email", value: bookingRecord.email },
+              { label: "Phone", value: bookingRecord.phone },
+              { label: "Service", value: serviceName },
+              { label: "Notes", value: bookingRecord.notes || "None" },
+              { label: "Preferred Date", value: bookingRecord.preferredDate || "Not provided" },
+              { label: "Amount", value: `R ${(bookingRecord.amount / 100).toFixed(2)} ${bookingRecord.currency}` },
+              { label: "Stripe Session ID", value: bookingRecord.stripeSessionId },
+            ],
+          });
+
+          const adminText = [
+            "New paid booking via Stripe:",
+            `Name: ${bookingRecord.name}`,
+            `Email: ${bookingRecord.email}`,
+            `Phone: ${bookingRecord.phone}`,
+            `Service: ${serviceName}`,
+            `Notes: ${bookingRecord.notes || "None"}`,
+            `Preferred Date: ${bookingRecord.preferredDate || "Not provided"}`,
+            `Amount: R ${(bookingRecord.amount / 100).toFixed(2)} ${bookingRecord.currency}`,
+            `Stripe Session ID: ${bookingRecord.stripeSessionId}`,
+          ].join("\n");
+
+          await sendEmailWithRetry(transporter, {
+            from: `"Myriad Green" <${smtpUser}>`,
+            to: adminEmail,
+            subject: `NEW PAID BOOKING — ${serviceName}`,
+            text: adminText,
+            html: adminHtml,
+            attachments: [buildLogoAttachment()],
+          });
+
+          const clientHtml = buildEmailTemplate({
+            title: "Booking Confirmed — Myriad Green",
+            intro: `Hi ${greetingName === "there" ? "there" : greetingName},
+
+Your payment has been received and your booking for ${serviceName} is confirmed. We will be in touch soon with further details.`,
+            rows: [
+              { label: "Service", value: serviceName },
+              { label: "Amount Paid", value: `R ${(bookingRecord.amount / 100).toFixed(2)} ${bookingRecord.currency}` },
+              { label: "Booking ID", value: bookingRecord.stripeSessionId },
+            ],
+            footerNote: "Thank you for your trust in Myriad Green.",
+          });
+
+          const clientText = [
+            `Hi ${greetingName === "there" ? "there" : greetingName},`,
+            "Your payment has been received and your booking is now confirmed.",
+            "",
+            `Service: ${serviceName}`,
+            `Amount Paid: R ${(bookingRecord.amount / 100).toFixed(2)} ${bookingRecord.currency}`,
+            `Booking ID: ${bookingRecord.stripeSessionId}`,
+            "",
+            "We will be in touch soon with further details.",
+          ].join("\n");
+
+          await sendEmailWithRetry(transporter, {
+            from: `"Myriad Green" <${smtpUser}>`,
+            to: bookingRecord.email,
+            subject: "Booking Confirmed — Myriad Green",
+            text: clientText,
+            html: clientHtml,
+            attachments: [buildLogoAttachment()],
+          });
+        } else {
+          logger.error("stripeWebhook: missing SMTP configuration or admin email");
+        }
+      }
+    }
+
+    res.status(200).send();
+  }
+);
+
+exports.verifyCheckoutSession = onRequest(
+  { region: "africa-south1", cors: true, secrets: [STRIPE_SECRET_KEY] },
+  async (req, res) => {
+    if (req.method !== "GET") {
+      res.status(405).json({ error: "Method not allowed" });
+      return;
+    }
+
+    const sessionId = req.query.session_id;
+    if (!sessionId) {
+      res.status(400).json({ error: "session_id required" });
+      return;
+    }
+
+    try {
+      const stripeClient = Stripe(STRIPE_SECRET_KEY.value());
+      const session = await stripeClient.checkout.sessions.retrieve(sessionId);
+      const paid = session.payment_status === "paid";
+      res.json({ paid, service: session.metadata?.service || null, name: session.metadata?.name || null });
+    } catch (err) {
+      logger.error("verifyCheckoutSession error", err);
       res.status(500).json({ error: "Internal error" });
     }
   }
@@ -1145,6 +1433,14 @@ exports.sendServiceReport = onRequest(
         const candidate = typeof value.toDate === "function" ? value.toDate() : new Date(value);
         return Number.isNaN(candidate.getTime()) ? "Not recorded" : candidate.toLocaleString("en-ZA");
       };
+      const visitDateShort = (() => {
+        if (!reportDoc.visitDate) {
+          return "Not recorded";
+        }
+        const candidate =
+          typeof reportDoc.visitDate.toDate === "function" ? reportDoc.visitDate.toDate() : new Date(reportDoc.visitDate);
+        return Number.isNaN(candidate.getTime()) ? "Not recorded" : candidate.toLocaleDateString("en-ZA");
+      })();
 
       const followUpStatusLabel = reportDoc.followUpRequired ? "Yes" : "No";
       const normalizedClientName = sanitizeEmailText(normalizeForEmail(reportDoc.client?.name));
@@ -1232,20 +1528,25 @@ exports.sendServiceReport = onRequest(
         if (hasClientEmail) {
           const clientGreetingName = sanitizeEmailText(normalizeForEmail(displayValue(normalizedClientName, "there")));
           const serviceId = toServiceId(reportDoc.serviceName);
+          const serviceRecord = SERVICE_COPY[String(serviceId ?? "")] ?? null;
+          const assessmentSentence = serviceRecord?.assessmentSentence || DEFAULT_SERVICE_ASSESSMENT_SENTENCE;
+          const clientIntroPlainText = [
+            `Hi ${displayValue(clientGreetingName, "there")},`,
+            "",
+            `Thank you for allowing Myriad Green to assist you on site on ${visitDateShort}.`,
+            assessmentSentence,
+            "Your detailed service report is attached for easy reference, including our findings, actions taken, and recommended next steps tailored specifically to your property.",
+          ].join("\n");
           const clientIntro = sanitizeEmailText(
-            normalizeForEmail(
-              buildServiceReportIntro({
-                greetingName: clientGreetingName,
-                serviceId,
-              })
-            )
+            normalizeForEmail(clientIntroPlainText)
           );
 
-          const clientFooterNote = sanitizeEmailText(normalizeForEmail([
+          const clientFooterPlainText = [
             "If you have any questions or would like to schedule follow-up assistance, we’re here to help anytime.",
             "",
             "Thank you again for choosing Myriad Green — we truly appreciate the opportunity to support your home’s water systems.",
-          ].join("\n")));
+          ].join("\n");
+          const clientFooterNote = sanitizeEmailText(normalizeForEmail(clientFooterPlainText));
 
           const clientHtml = buildEmailTemplate({
             title: "Your Service Report",
