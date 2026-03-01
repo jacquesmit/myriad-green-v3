@@ -12,28 +12,50 @@
 </head>
 <body>
   <h1>Thank you for your booking</h1>
-  <p id="message">Checking payment status...</p>
+  <p id="message" style="font-size: 1.125rem; line-height: 1.6; color: #333;">Checking payment status...</p>
+  <p style="margin-top: 2rem; font-size: 0.95rem; color: #666;">If this page doesn't update, you can check your email for a booking confirmation or call us at <a href="tel:+27629233952">+27 62 923 3952</a>.</p>
   <script>
     (async function(){
       const params = new URLSearchParams(window.location.search);
       const sessionId = params.get('session_id');
       const msg = document.getElementById('message');
       if (!sessionId) {
-        msg.textContent = 'No session information provided.';
+        msg.textContent = 'No session information provided. If you just completed payment, please wait a moment and refresh.';
         return;
       }
-      try {
-        const url = 'https://africa-south1-myriad-green-v3.cloudfunctions.net/verifyCheckoutSession?session_id=' + encodeURIComponent(sessionId);
-        const resp = await fetch(url);
-        const data = await resp.json();
-        if (resp.ok && data.paid) {
-          msg.textContent = 'Payment confirmed. Your booking has been logged successfully.';
-        } else {
-          msg.textContent = 'We were unable to verify payment. Please contact support if you believe this is an error.';
+      let attempts = 0;
+      const maxAttempts = 3;
+      const delay = 1000;
+      
+      async function verify() {
+        try {
+          const url = 'https://africa-south1-myriad-green-v3.cloudfunctions.net/verifyCheckoutSession?session_id=' + encodeURIComponent(sessionId);
+          const resp = await fetch(url, { method: 'GET' });
+          if (!resp.ok) {
+            throw new Error(`HTTP ${resp.status}`);
+          }
+          const data = await resp.json();
+          if (data.paid) {
+            msg.textContent = 'Payment confirmed. Your booking has been logged successfully. Our team will contact you within one business day.';
+            return;
+          } else if (attempts < maxAttempts) {
+            msg.textContent = 'Checking payment status... (attempt ' + (attempts + 1) + ')';
+            attempts++;
+            setTimeout(verify, delay);
+          } else {
+            msg.textContent = 'Payment verification pending. Please check your email for confirmation. If you do not receive confirmation within 10 minutes, contact us at hello@myriadgreen.co.za or +27 62 923 3952.';
+          }
+        } catch (err) {
+          if (attempts < maxAttempts) {
+            msg.textContent = 'Checking payment status... (attempt ' + (attempts + 1) + ')';
+            attempts++;
+            setTimeout(verify, delay);
+          } else {
+            msg.textContent = 'Network error verifying payment. Your payment has likely been processed. Please check your email or contact us at hello@myriadgreen.co.za or +27 62 923 3952 to confirm your booking.';
+          }
         }
-      } catch (err) {
-        msg.textContent = 'Error checking payment status. Please try again later or contact support.';
       }
+      verify();
     })();
   </script>
 </body>
