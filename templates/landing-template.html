@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{{title}}</title>
+  <meta name="description" content="{{meta_description}}" />
+  <link rel="canonical" href="{{canonical_url}}" />
+
+  <link rel="stylesheet" href="assets/css/theme.css" />
+  <link rel="stylesheet" href="assets/css/layout.css" />
+  <link rel="stylesheet" href="assets/css/components.css" />
+  <link rel="stylesheet" href="assets/css/nav-footer.css" />
+</head>
+<body>
+  <main>
+    <section id="hero" aria-labelledby="landing-hero-title">
+      <h1 id="landing-hero-title">{{hero_title}}</h1>
+      <p>{{hero_intro}}</p>
+      <a href="{{hero_cta_url}}">{{hero_cta_label}}</a>
+    </section>
+
+    <section id="value-props" aria-labelledby="value-props-title">
+      <h2 id="value-props-title">{{value_props_heading}}</h2>
+      <div>{{value_props_items}}</div>
+    </section>
+
+    <section id="primary-cta" aria-labelledby="primary-cta-title">
+      <h2 id="primary-cta-title">{{primary_cta_heading}}</h2>
+      <p>{{primary_cta_copy}}</p>
+      <a href="{{primary_cta_url}}">{{primary_cta_label}}</a>
+    </section>
+
+    <section id="secondary-cta" aria-labelledby="secondary-cta-title">
+      <h2 id="secondary-cta-title">{{secondary_cta_heading}}</h2>
+      <p>{{secondary_cta_copy}}</p>
+      <a href="{{secondary_cta_url}}">{{secondary_cta_label}}</a>
+    </section>
+  </main>
+
+  <script src="assets/js/site-init.js" defer></script>
+</body>
+</html>
