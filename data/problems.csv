@@ -1,0 +1,30 @@
+service_slug,problem,problem_slug,category,priority
+leak-detection,Slab Leak,slab-leak,leaks,1
+leak-detection,Pool Leak,pool-leak,leaks,1
+leak-detection,Underground Pipe Leak,underground-pipe-leak,leaks,1
+leak-detection,High Water Bill,high-water-bill,leaks,1
+leak-detection,Wall Leak,wall-leak,leaks,1
+
+drain-unblocking,Kitchen Drain Blocked,kitchen-drain-blocked,drains,1
+drain-unblocking,Sewer Line Blocked,sewer-line-blocked,drains,1
+drain-unblocking,Toilet Blocked,toilet-blocked,drains,1
+drain-unblocking,Stormwater Drain Blocked,stormwater-drain-blocked,drains,1
+drain-unblocking,Grease Blockage,grease-blockage,drains,1
+
+drain-camera-inspection,Broken Sewer Pipe,broken-sewer-pipe,inspection,1
+drain-camera-inspection,Root Intrusion,root-intrusion,inspection,1
+drain-camera-inspection,Collapsed Drain Line,collapsed-drain-line,inspection,1
+drain-camera-inspection,Unknown Drain Blockage,unknown-drain-blockage,inspection,1
+drain-camera-inspection,Recurring Drain Problem,recurring-drain-problem,inspection,1
+
+irrigation-repair,Low Water Pressure,low-water-pressure,irrigation,1
+irrigation-repair,Broken Sprinkler,broken-sprinkler,irrigation,1
+irrigation-repair,Valve Failure,valve-failure,irrigation,1
+irrigation-repair,Controller Fault,controller-fault,irrigation,1
+irrigation-repair,Pipe Leak,pipe-leak,irrigation,1
+
+borehole-pump-systems,Low Borehole Pressure,low-borehole-pressure,borehole,1
+borehole-pump-systems,Pump Not Starting,pump-not-starting,borehole,1
+borehole-pump-systems,Pressure Controller Fault,pressure-controller-fault,borehole,1
+borehole-pump-systems,No Water Supply,no-water-supply,borehole,1
+borehole-pump-systems,Pump Cycling Problem,pump-cycling-problem,borehole,1
