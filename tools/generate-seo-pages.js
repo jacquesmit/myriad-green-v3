@@ -24,10 +24,14 @@ const OUTPUT_ROOT_DIR = path.join(ROOT_DIR, "services");
 
 const SERVICES_CSV = path.join(DATA_DIR, "services.csv");
 const SUBURBS_CSV = path.join(DATA_DIR, "suburbs.csv");
+const PROBLEMS_CSV = path.join(DATA_DIR, "problems.csv");
+const INTENTS_CSV = path.join(DATA_DIR, "intents.csv");
 const TEMPLATE_FILE = path.join(TEMPLATES_DIR, "service-area-template.html");
 
 const REQUIRED_SERVICE_HEADERS = ["service", "service_slug", "category", "primary_cta"];
 const REQUIRED_SUBURB_HEADERS = ["suburb", "suburb_slug", "city", "province", "priority"];
+const REQUIRED_PROBLEM_HEADERS = ["service_slug", "problem", "problem_slug", "category", "priority"];
+const REQUIRED_INTENT_HEADERS = ["intent", "intent_slug", "priority"];
 
 function parseCsvLine(line) {
   const values = [];
@@ -122,13 +126,14 @@ function buildStructuredData({ name, areaServed, url }) {
   );
 }
 
-function getRelatedServices(services, currentServiceSlug) {
-  return services
-    .filter((service) => safeValue(service.service_slug).trim() !== currentServiceSlug)
+function getNearbySuburbs(suburbs, currentSuburbSlug) {
+  return suburbs
+    .filter((suburb) => safeValue(suburb.suburb_slug).trim() !== currentSuburbSlug)
     .slice(0, 3)
-    .map((service) => ({
-      slug: safeValue(service.service_slug).trim(),
-      name: safeValue(service.service).trim(),
+    .map((suburb) => ({
+      slug: safeValue(suburb.suburb_slug).trim(),
+      suburb: safeValue(suburb.suburb).trim(),
+      city: safeValue(suburb.city).trim(),
     }));
 }
 
@@ -148,9 +153,13 @@ function generate() {
   const template = fs.readFileSync(TEMPLATE_FILE, "utf8");
   const servicesCsv = readCsv(SERVICES_CSV);
   const suburbsCsv = readCsv(SUBURBS_CSV);
+  const problemsCsv = readCsv(PROBLEMS_CSV);
+  const intentsCsv = readCsv(INTENTS_CSV);
 
   assertHeaders(servicesCsv.headers, REQUIRED_SERVICE_HEADERS, SERVICES_CSV);
   assertHeaders(suburbsCsv.headers, REQUIRED_SUBURB_HEADERS, SUBURBS_CSV);
+  assertHeaders(problemsCsv.headers, REQUIRED_PROBLEM_HEADERS, PROBLEMS_CSV);
+  assertHeaders(intentsCsv.headers, REQUIRED_INTENT_HEADERS, INTENTS_CSV);
 
   if (servicesCsv.records.length === 0) {
     throw new Error("services.csv has no data rows.");
@@ -158,6 +167,14 @@ function generate() {
 
   if (suburbsCsv.records.length === 0) {
     throw new Error("suburbs.csv has no data rows.");
+  }
+
+  if (problemsCsv.records.length === 0) {
+    throw new Error("problems.csv has no data rows.");
+  }
+
+  if (intentsCsv.records.length === 0) {
+    throw new Error("intents.csv has no data rows.");
   }
 
   let generatedCount = 0;
@@ -175,10 +192,27 @@ function generate() {
       const suburbSlug = safeValue(suburb.suburb_slug).trim();
       const city = safeValue(suburb.city).trim();
       const province = safeValue(suburb.province).trim();
-      const relatedServices = getRelatedServices(servicesCsv.records, serviceSlug);
-      const related1 = relatedServices[0] || { slug: "", name: "" };
-      const related2 = relatedServices[1] || { slug: "", name: "" };
-      const related3 = relatedServices[2] || { slug: "", name: "" };
+      const nearbySuburbs = getNearbySuburbs(suburbsCsv.records, suburbSlug);
+      const nearby1 = nearbySuburbs[0] || { slug: "", suburb: "", city: "" };
+      const nearby2 = nearbySuburbs[1] || { slug: "", suburb: "", city: "" };
+      const nearby3 = nearbySuburbs[2] || { slug: "", suburb: "", city: "" };
+      const relatedProblems = problemsCsv.records
+        .filter((problem) => safeValue(problem.service_slug).trim() === serviceSlug)
+        .slice(0, 3)
+        .map((problem) => ({
+          slug: safeValue(problem.problem_slug).trim(),
+          name: safeValue(problem.problem).trim(),
+        }));
+      const relatedProblem1 = relatedProblems[0] || { slug: "", name: "" };
+      const relatedProblem2 = relatedProblems[1] || { slug: "", name: "" };
+      const relatedProblem3 = relatedProblems[2] || { slug: "", name: "" };
+      const relatedIntents = intentsCsv.records.slice(0, 3).map((intent) => ({
+        slug: safeValue(intent.intent_slug).trim(),
+        name: safeValue(intent.intent).trim(),
+      }));
+      const relatedIntent1 = relatedIntents[0] || { slug: "", name: "" };
+      const relatedIntent2 = relatedIntents[1] || { slug: "", name: "" };
+      const relatedIntent3 = relatedIntents[2] || { slug: "", name: "" };
       if (!suburbSlug) {
         throw new Error("Encountered suburb row with empty suburb_slug.");
       }
@@ -221,12 +255,26 @@ function generate() {
         faq_2_a: "We aim to respond quickly and offer same-day service where availability allows.",
         faq_3_q: "Do you work with homes and estates?",
         faq_3_a: `Yes. Myriad Green works with homeowners, estates, and property managers across ${city}.`,
-        related_service_1_slug: related1.slug,
-        related_service_1_name: related1.name,
-        related_service_2_slug: related2.slug,
-        related_service_2_name: related2.name,
-        related_service_3_slug: related3.slug,
-        related_service_3_name: related3.name,
+        parent_service_url: `/services/${serviceSlug}/`,
+        parent_service_name: serviceName,
+        nearby_link_1_url: nearby1.slug ? `/services/${serviceSlug}/${nearby1.slug}/` : "",
+        nearby_link_1_name: nearby1.suburb ? `${serviceName} in ${nearby1.suburb}, ${nearby1.city}` : "",
+        nearby_link_2_url: nearby2.slug ? `/services/${serviceSlug}/${nearby2.slug}/` : "",
+        nearby_link_2_name: nearby2.suburb ? `${serviceName} in ${nearby2.suburb}, ${nearby2.city}` : "",
+        nearby_link_3_url: nearby3.slug ? `/services/${serviceSlug}/${nearby3.slug}/` : "",
+        nearby_link_3_name: nearby3.suburb ? `${serviceName} in ${nearby3.suburb}, ${nearby3.city}` : "",
+        related_problem_1_url: relatedProblem1.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedProblem1.slug}/` : "",
+        related_problem_1_name: relatedProblem1.name,
+        related_problem_2_url: relatedProblem2.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedProblem2.slug}/` : "",
+        related_problem_2_name: relatedProblem2.name,
+        related_problem_3_url: relatedProblem3.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedProblem3.slug}/` : "",
+        related_problem_3_name: relatedProblem3.name,
+        related_intent_1_url: relatedIntent1.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedIntent1.slug}/` : "",
+        related_intent_1_name: relatedIntent1.name,
+        related_intent_2_url: relatedIntent2.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedIntent2.slug}/` : "",
+        related_intent_2_name: relatedIntent2.name,
+        related_intent_3_url: relatedIntent3.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedIntent3.slug}/` : "",
+        related_intent_3_name: relatedIntent3.name,
         cta_intro: `Need professional ${serviceName} in ${suburbName}? Contact Myriad Green for fast local assistance.`,
         book_service_url: "#booking",
         contact_url: "#contact",

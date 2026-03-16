@@ -26,11 +26,13 @@ const OUTPUT_ROOT_DIR = path.join(ROOT_DIR, "services");
 const SERVICES_CSV = path.join(DATA_DIR, "services.csv");
 const SUBURBS_CSV = path.join(DATA_DIR, "suburbs.csv");
 const PROBLEMS_CSV = path.join(DATA_DIR, "problems.csv");
+const INTENTS_CSV = path.join(DATA_DIR, "intents.csv");
 const TEMPLATE_FILE = path.join(TEMPLATES_DIR, "problem-page-template.html");
 
 const REQUIRED_SERVICE_HEADERS = ["service", "service_slug", "category", "primary_cta"];
 const REQUIRED_SUBURB_HEADERS = ["suburb", "suburb_slug", "city", "province", "priority"];
 const REQUIRED_PROBLEM_HEADERS = ["service_slug", "problem", "problem_slug", "category", "priority"];
+const REQUIRED_INTENT_HEADERS = ["intent", "intent_slug", "priority"];
 
 function parseCsvLine(line) {
   const values = [];
@@ -124,6 +126,17 @@ function buildStructuredData({ name, areaServed, url }) {
   );
 }
 
+function getNearbySuburbs(suburbs, currentSuburbSlug) {
+  return suburbs
+    .filter((suburb) => safeValue(suburb.suburb_slug).trim() !== currentSuburbSlug)
+    .slice(0, 3)
+    .map((suburb) => ({
+      slug: safeValue(suburb.suburb_slug).trim(),
+      suburb: safeValue(suburb.suburb).trim(),
+      city: safeValue(suburb.city).trim(),
+    }));
+}
+
 function replaceVariables(template, values) {
   let output = template;
 
@@ -143,10 +156,12 @@ function generate() {
   const servicesCsv = readCsv(SERVICES_CSV);
   const suburbsCsv = readCsv(SUBURBS_CSV);
   const problemsCsv = readCsv(PROBLEMS_CSV);
+  const intentsCsv = readCsv(INTENTS_CSV);
 
   assertHeaders(servicesCsv.headers, REQUIRED_SERVICE_HEADERS, SERVICES_CSV);
   assertHeaders(suburbsCsv.headers, REQUIRED_SUBURB_HEADERS, SUBURBS_CSV);
   assertHeaders(problemsCsv.headers, REQUIRED_PROBLEM_HEADERS, PROBLEMS_CSV);
+  assertHeaders(intentsCsv.headers, REQUIRED_INTENT_HEADERS, INTENTS_CSV);
 
   if (servicesCsv.records.length === 0) {
     throw new Error("services.csv has no data rows.");
@@ -156,6 +171,9 @@ function generate() {
   }
   if (problemsCsv.records.length === 0) {
     throw new Error("problems.csv has no data rows.");
+  }
+  if (intentsCsv.records.length === 0) {
+    throw new Error("intents.csv has no data rows.");
   }
 
   let generatedCount = 0;
@@ -186,6 +204,27 @@ function generate() {
         const suburbSlug = safeValue(suburb.suburb_slug).trim();
         const city = safeValue(suburb.city).trim();
         const province = safeValue(suburb.province).trim();
+        const nearbySuburbs = getNearbySuburbs(suburbsCsv.records, suburbSlug);
+        const nearby1 = nearbySuburbs[0] || { slug: "", suburb: "", city: "" };
+        const nearby2 = nearbySuburbs[1] || { slug: "", suburb: "", city: "" };
+        const nearby3 = nearbySuburbs[2] || { slug: "", suburb: "", city: "" };
+        const siblingProblems = matchingProblems
+          .filter((item) => safeValue(item.problem_slug).trim() !== problemSlug)
+          .slice(0, 3)
+          .map((item) => ({
+            slug: safeValue(item.problem_slug).trim(),
+            name: safeValue(item.problem).trim(),
+          }));
+        const relatedProblem1 = siblingProblems[0] || { slug: "", name: "" };
+        const relatedProblem2 = siblingProblems[1] || { slug: "", name: "" };
+        const relatedProblem3 = siblingProblems[2] || { slug: "", name: "" };
+        const relatedIntents = intentsCsv.records.slice(0, 3).map((intent) => ({
+          slug: safeValue(intent.intent_slug).trim(),
+          name: safeValue(intent.intent).trim(),
+        }));
+        const relatedIntent1 = relatedIntents[0] || { slug: "", name: "" };
+        const relatedIntent2 = relatedIntents[1] || { slug: "", name: "" };
+        const relatedIntent3 = relatedIntents[2] || { slug: "", name: "" };
 
         if (!suburbSlug) {
           throw new Error("Encountered suburb row with empty suburb_slug.");
@@ -207,6 +246,26 @@ function generate() {
           problem: problemName,
           problem_slug: problemSlug,
           primary_cta: primaryCta,
+          parent_service_url: `/services/${serviceSlug}/${suburbSlug}/`,
+          parent_service_name: `${serviceName} in ${suburbName}, ${city}`,
+          nearby_link_1_url: nearby1.slug ? `/services/${serviceSlug}/${nearby1.slug}/` : "",
+          nearby_link_1_name: nearby1.suburb ? `${serviceName} in ${nearby1.suburb}, ${nearby1.city}` : "",
+          nearby_link_2_url: nearby2.slug ? `/services/${serviceSlug}/${nearby2.slug}/` : "",
+          nearby_link_2_name: nearby2.suburb ? `${serviceName} in ${nearby2.suburb}, ${nearby2.city}` : "",
+          nearby_link_3_url: nearby3.slug ? `/services/${serviceSlug}/${nearby3.slug}/` : "",
+          nearby_link_3_name: nearby3.suburb ? `${serviceName} in ${nearby3.suburb}, ${nearby3.city}` : "",
+          related_problem_1_url: relatedProblem1.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedProblem1.slug}/` : "",
+          related_problem_1_name: relatedProblem1.name,
+          related_problem_2_url: relatedProblem2.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedProblem2.slug}/` : "",
+          related_problem_2_name: relatedProblem2.name,
+          related_problem_3_url: relatedProblem3.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedProblem3.slug}/` : "",
+          related_problem_3_name: relatedProblem3.name,
+          related_intent_1_url: relatedIntent1.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedIntent1.slug}/` : "",
+          related_intent_1_name: relatedIntent1.name,
+          related_intent_2_url: relatedIntent2.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedIntent2.slug}/` : "",
+          related_intent_2_name: relatedIntent2.name,
+          related_intent_3_url: relatedIntent3.slug ? `/services/${serviceSlug}/${suburbSlug}/${relatedIntent3.slug}/` : "",
+          related_intent_3_name: relatedIntent3.name,
           title: `${pageName} | Myriad Green`,
           meta_description: `Professional ${serviceName} for ${problemName} in ${suburbName}, ${city}, ${province}. Fast diagnostics and repair by Myriad Green.`,
           canonical: canonicalPath,
