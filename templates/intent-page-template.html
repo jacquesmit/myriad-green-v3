@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+
+  <!-- Generator replaces SEO head variables per output page. -->
+  <title>{{title}}</title>
+  <meta name="description" content="{{meta_description}}" />
+  <link rel="canonical" href="{{canonical}}" />
+
+  <!-- Generator injects JSON-LD content here. -->
+  <script type="application/ld+json">
+    {{structured_data_json}}
+  </script>
+
+  <link rel="stylesheet" href="assets/css/theme.css" />
+  <link rel="stylesheet" href="assets/css/layout.css" />
+  <link rel="stylesheet" href="assets/css/components.css" />
+  <link rel="stylesheet" href="assets/css/services.css" />
+</head>
+<body>
+  <header id="site-header"></header>
+
+  <main id="main-content">
+    <!-- SECTION 1: Hero -->
+    <section id="hero" aria-labelledby="hero-heading">
+      <h1 id="hero-heading">{{service}} in {{suburb}}, {{city}} – {{intent}}</h1>
+      <p>{{hero_intro}}</p>
+    </section>
+
+    <!-- SECTION 2: Service intent overview -->
+    <section id="intent-overview" aria-labelledby="intent-overview-heading">
+      <h2 id="intent-overview-heading">Service Intent Overview</h2>
+      <p>{{intent_overview}}</p>
+    </section>
+
+    <!-- SECTION 3: Why customers search for this -->
+    <section id="search-reasons" aria-labelledby="search-reasons-heading">
+      <h2 id="search-reasons-heading">Why Customers Search For This</h2>
+      <ul>
+        <li>{{reason_1}}</li>
+        <li>{{reason_2}}</li>
+        <li>{{reason_3}}</li>
+      </ul>
+    </section>
+
+    <!-- SECTION 4: How Myriad Green helps -->
+    <section id="how-we-help" aria-labelledby="how-we-help-heading">
+      <h2 id="how-we-help-heading">How Myriad Green Helps</h2>
+      <ol>
+        <li>{{step_1}}</li>
+        <li>{{step_2}}</li>
+        <li>{{step_3}}</li>
+      </ol>
+    </section>
+
+    <!-- SECTION 5: Trust section -->
+    <section id="trust" aria-labelledby="trust-heading">
+      <h2 id="trust-heading">Why Choose Myriad Green</h2>
+      <ul>
+        <li>{{trust_1}}</li>
+        <li>{{trust_2}}</li>
+        <li>{{trust_3}}</li>
+        <li>{{trust_4}}</li>
+      </ul>
+    </section>
+
+    <!-- SECTION 6: Local Area Service -->
+    <section id="local-area-service" aria-labelledby="local-area-service-heading">
+      <h2 id="local-area-service-heading">Local Area Service</h2>
+      <p>{{service}} in {{suburb}}, {{city}}, {{province}} for customers searching for {{intent}}.</p>
+    </section>
+
+    <!-- SECTION 7: FAQ -->
+    <section id="faq" aria-labelledby="faq-heading">
+      <h2 id="faq-heading">Frequently Asked Questions</h2>
+      <details>
+        <summary>{{faq_1_q}}</summary>
+        <p>{{faq_1_a}}</p>
+      </details>
+      <details>
+        <summary>{{faq_2_q}}</summary>
+        <p>{{faq_2_a}}</p>
+      </details>
+      <details>
+        <summary>{{faq_3_q}}</summary>
+        <p>{{faq_3_a}}</p>
+      </details>
+    </section>
+
+    <!-- SECTION 8: Related links -->
+    <section id="related-links" aria-labelledby="related-links-heading">
+      <h2 id="related-links-heading">Related Links</h2>
+      <nav aria-label="Related pages">
+        <ul>
+          <li><a href="{{related_service_url}}">{{related_service_label}}</a></li>
+          <li><a href="{{related_suburb_service_url}}">{{related_suburb_service_label}}</a></li>
+        </ul>
+      </nav>
+    </section>
+
+    <!-- SECTION 9: CTA -->
+    <section id="cta" aria-labelledby="cta-heading">
+      <h2 id="cta-heading">Next Step</h2>
+      <p>
+        <a href="{{primary_cta_url}}">{{primary_cta}}</a>
+      </p>
+    </section>
+  </main>
+
+  <footer id="site-footer"></footer>
+
+  <script src="assets/js/site-init.js" defer></script>
+</body>
+</html>

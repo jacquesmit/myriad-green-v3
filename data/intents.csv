@@ -1,0 +1,9 @@
+intent,intent_slug,priority
+Emergency Repair,emergency-repair,1
+Repair Service,repair-service,1
+Inspection Service,inspection-service,1
+Urgent Service,urgent-service,1
+Same Day Service,same-day-service,1
+24 Hour Service,24-hour-service,1
+Diagnosis Service,diagnosis-service,1
+Professional Service,professional-service,1
