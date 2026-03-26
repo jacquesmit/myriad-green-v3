@@ -230,7 +230,23 @@ function buildIntentLead(intentName, serviceName) {
     return `urgent ${serviceLower}`;
   }
 
-  return `${serviceLower} ${intentLower}`;
+  if (intentLower.includes("inspection")) {
+    return `${serviceLower} inspection`;
+  }
+
+  if (intentLower.includes("diagnosis")) {
+    return `${serviceLower} diagnosis`;
+  }
+
+  if (intentLower.includes("repair")) {
+    return serviceLower.includes("repair") ? `${serviceLower} work` : `${serviceLower} repair`;
+  }
+
+  if (intentLower.includes("professional")) {
+    return `professional ${serviceLower} support`;
+  }
+
+  return `${serviceLower} service`;
 }
 
 function inferIntentFocus(intentName) {
@@ -404,35 +420,35 @@ function inferIntentTrigger(intentName, serviceName) {
   const serviceLower = safeValue(serviceName).trim().toLowerCase();
 
   if (intentLower.includes("24-hour") || intentLower.includes("24 hour")) {
-    return "The fault started outside normal business hours";
+    return "The fault started outside normal working hours";
   }
 
   if (intentLower.includes("same-day") || intentLower.includes("same day")) {
-    return "The fault appeared during the day and cannot be left unresolved overnight";
+    return "The fault appeared earlier in the day during normal use";
   }
 
   if (intentLower.includes("emergency")) {
-    return "An active failure is already disrupting the property";
+    return "A live system failure has occurred";
   }
 
   if (intentLower.includes("urgent")) {
-    return "The fault is worsening faster than routine scheduling allows";
+    return "The underlying fault is worsening over time";
   }
 
   if (intentLower.includes("inspection")) {
-    return "The cause is still unclear after the first visible warning signs";
+    return "The exact fault location is still unclear";
   }
 
   if (intentLower.includes("diagnosis")) {
-    return "Repair planning has stalled because the fault has not been isolated";
+    return "More than one fault could be creating the same failure";
   }
 
   if (intentLower.includes("repair")) {
-    return "The problem has moved beyond temporary adjustments";
+    return "A confirmed component fault now needs corrective work";
   }
 
   if (intentLower.includes("professional")) {
-    return "The issue needs specialist assessment rather than trial and error";
+    return "The system fault has more than one likely technical cause";
   }
 
   if (serviceLower.includes("leak")) {
@@ -518,6 +534,67 @@ function buildIntentActionLabel(intentName) {
   return "professional service";
 }
 
+function buildIntentTriggerReason(intentName, serviceName) {
+  return `${upperFirst(stripTrailingPunctuation(inferIntentTrigger(intentName, serviceName)))}.`;
+}
+
+function buildIntentSymptomReason(serviceName, suburbName) {
+  const serviceLower = safeValue(serviceName).trim().toLowerCase();
+
+  if (serviceLower.includes("leak")) {
+    return `Homeowners in ${suburbName} notice damp areas, pressure changes, or unexplained water loss.`;
+  }
+
+  if (serviceLower.includes("irrigation")) {
+    return `Homeowners in ${suburbName} see dry zones, overspray, or controller schedules failing to run correctly.`;
+  }
+
+  if (serviceLower.includes("drain")) {
+    return `Homeowners in ${suburbName} notice slow drainage, foul smells, or wastewater backing up at fixtures.`;
+  }
+
+  if (serviceLower.includes("borehole") || serviceLower.includes("pump")) {
+    return `Homeowners in ${suburbName} notice unstable pressure, weak flow, or water supply dropping out unexpectedly.`;
+  }
+
+  return `Homeowners in ${suburbName} notice performance changes that show the system is no longer operating normally.`;
+}
+
+function buildIntentDecisionReason(intentName) {
+  const bookingLabel = buildIntentActionLabel(intentName);
+  const intentLower = safeValue(intentName).trim().toLowerCase();
+
+  if (intentLower.includes("24-hour") || intentLower.includes("24 hour")) {
+    return `Booking ${bookingLabel} secures after-hours attendance before the fault sits unresolved overnight.`;
+  }
+
+  if (intentLower.includes("same-day") || intentLower.includes("same day")) {
+    return `Booking ${bookingLabel} gets the system checked before the day ends.`;
+  }
+
+  if (intentLower.includes("emergency")) {
+    return `Booking ${bookingLabel} helps contain the fault before damage spreads further.`;
+  }
+
+  if (intentLower.includes("urgent")) {
+    return `Booking ${bookingLabel} shortens the delay before targeted repair work begins.`;
+  }
+
+  if (intentLower.includes("inspection")) {
+    return `Booking ${bookingLabel} gives the owner clear evidence before repair work is approved.`;
+  }
+
+  if (intentLower.includes("diagnosis")) {
+    return `Booking ${bookingLabel} isolates the fault so the next repair decision is based on testing.`;
+  }
+
+  if (intentLower.includes("repair")) {
+    return `Booking ${bookingLabel} moves the property from diagnosis to a controlled repair plan.`;
+  }
+
+  return `Booking ${bookingLabel} gives the property an experienced repair strategy without trial and error.`;
+}
+
 function inferIntentAction(intentName, serviceName, suburbName, city) {
   const intentLower = safeValue(intentName).trim().toLowerCase();
 
@@ -574,7 +651,8 @@ function inferIntentLocalAreaNeeds(serviceName, intentName) {
 
 function buildIntentLocalAreaCopy(serviceName, intentName, suburbName, city) {
   const actionLabel = buildIntentLead(intentName, serviceName);
-  return `Myriad Green provides ${actionLabel} across ${suburbName} and surrounding ${city} areas, with fast response and practical on-site support.`;
+  const needs = inferIntentLocalAreaNeeds(serviceName, intentName);
+  return `Myriad Green provides ${actionLabel} across ${suburbName}, including surrounding estates and residential properties in ${city}, with practical on-site support for ${needs}.`;
 }
 
 function contextualizeParagraph(text, contextValues, contextSentence) {
@@ -596,12 +674,12 @@ function contextualizeParagraph(text, contextValues, contextSentence) {
     /^Customers searching for\s+(.+?)\s+usually want\s+/i,
     (_, lead) => `${upperFirst(lead)} starts with `
   );
-  output = output.replace(/\busually points to\b/gi, "is driven by");
-  output = output.replace(/\busually means\b/gi, "shows");
-  output = output.replace(/\bneeds to be confirmed\b/gi, "requires targeted diagnosis");
-  output = output.replace(/\bour team is tracing\b/gi, "we are isolating");
+  output = output.replace(/\busually\s+points\s+to\b/gi, "indicates");
+  output = output.replace(/\busually\s+means\b/gi, "shows");
+  output = output.replace(/\bneeds\s+to\s+be\s+confirmed\b/gi, "requires targeted diagnosis");
+  output = output.replace(/\bour\s+team\s+is\s+tracing\b/gi, "Myriad Green is isolating");
   output = output.replace(
-    /The source still needs to be confirmed before repairs begin\./gi,
+    /The\s+source\s+still\s+needs\s+to\s+be\s+confirmed\s+before\s+repairs\s+begin\./gi,
     "Targeted testing identifies the fault before repair work begins."
   );
   output = output.replace(/^This page covers\s+/i, "This page focuses on ");
@@ -614,59 +692,39 @@ function contextualizeParagraph(text, contextValues, contextSentence) {
 }
 
 function buildIntentHeroIntro(base, serviceName, intentName, suburbName, city) {
-  const condition = inferIntentCondition(intentName, serviceName, base);
-  const focus = inferIntentFocus(intentName);
   const intentLead = buildIntentLead(intentName, serviceName);
+  const triggerText = lowerFirst(stripTrailingPunctuation(inferIntentTrigger(intentName, serviceName)));
+  const visibleSignal = upperFirst(stripTrailingPunctuation(inferIntentVisibleSignal(serviceName)));
+  const decisionText = buildIntentDecisionReason(intentName);
 
   return joinSentences(
-    `${upperFirst(intentLead)} in ${suburbName}, ${city} focuses on ${focus}.`,
-    `This request becomes relevant when ${lowerFirst(condition)}.`,
-    inferIntentAction(intentName, serviceName, suburbName, city)
+    `${upperFirst(intentLead)} in ${suburbName}, ${city} is used when ${triggerText}.`,
+    `${visibleSignal}.`,
+    decisionText
   );
 }
 
 function buildIntentOverview(base, serviceName, intentName, suburbName, city) {
-  const condition = inferIntentCondition(intentName, serviceName, base);
+  const focus = inferIntentFocus(intentName);
   const meaning = inferIntentMeaning(intentName);
-  const intentLead = buildIntentLead(intentName, serviceName);
 
   return joinSentences(
-    `${upperFirst(intentLead)} is designed for situations where ${lowerFirst(condition)}.`,
+    `The first priority on site is ${focus}.`,
     `${upperFirst(meaning)}.`,
-    `Myriad Green assesses the risk first and then recommends the most practical response.`
+    `Myriad Green tests the system first and then confirms the most practical next step for the property.`
   );
 }
 
 function buildIntentReason(reason, serviceName, intentName, suburbName, city, variant, fallback) {
-  const bookingLabel = buildIntentActionLabel(intentName);
-  const triggerText = stripTrailingPunctuation(inferIntentTrigger(intentName, serviceName));
-  const actionText = stripTrailingPunctuation(inferIntentActionDriver(intentName));
-
   if (variant === 0) {
-    return `${upperFirst(triggerText)}.`;
+    return buildIntentTriggerReason(intentName, serviceName);
   }
 
   if (variant === 1) {
-    if (serviceName.toLowerCase().includes("leak")) {
-      return `Homeowners in ${suburbName} notice damp areas, pressure changes, or unexplained water loss.`;
-    }
-
-    if (serviceName.toLowerCase().includes("irrigation")) {
-      return `Homeowners in ${suburbName} see dry zones, overspray, or controller schedules failing to run correctly.`;
-    }
-
-    if (serviceName.toLowerCase().includes("drain")) {
-      return `Homeowners in ${suburbName} notice slow drainage, foul smells, or wastewater backing up at fixtures.`;
-    }
-
-    if (serviceName.toLowerCase().includes("borehole") || serviceName.toLowerCase().includes("pump")) {
-      return `Homeowners in ${suburbName} notice unstable pressure, weak flow, or water supply dropping out unexpectedly.`;
-    }
-
-    return `Homeowners in ${suburbName} notice performance changes that show the system is no longer operating normally.`;
+    return buildIntentSymptomReason(serviceName, suburbName);
   }
 
-  return `Booking ${bookingLabel} is the practical next step because ${lowerFirst(actionText)}.`;
+  return buildIntentDecisionReason(intentName);
 }
 
 function buildIntentCtaIntro(base, serviceName, intentName, suburbName, city) {
@@ -827,11 +885,26 @@ function replaceIntentLocalAreaCopy(html, localAreaCopy) {
 function finalizeRenderedCopy(html) {
   return html
     .replace(/â€“|â€”|Ã¢â‚¬â€œ|Ã¢â‚¬â€|ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“|ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â|&mdash;|&ndash;/g, "–")
-    .replace(/\busually points to\b/gi, "is driven by")
-    .replace(/\busually means\b/gi, "shows")
-    .replace(/\bneeds to be confirmed\b/gi, "requires targeted diagnosis")
+    .replace(/\busually\s+points\s+to\b/gi, "indicates")
+    .replace(/\busually\s+means\b/gi, "shows")
+    .replace(/\bneeds\s+to\s+be\s+confirmed\b/gi, "requires targeted diagnosis")
+    .replace(/\bour\s+team\s+is\s+tracing\b/gi, "Myriad Green is isolating")
     .replace(
-      /The source still needs to be confirmed before repairs begin\./gi,
+      /The\s+source\s+still\s+needs\s+to\s+be\s+confirmed\s+before\s+repairs\s+begin\./gi,
+      "Targeted testing identifies the fault before repair work begins."
+    );
+}
+
+function finalizeRenderedCopy(html) {
+  return html
+    .replace(/Ã¢â‚¬â€œ|Ã¢â‚¬â€|ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“|ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â|ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ|ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â|â€“|â€”|&mdash;|&ndash;/g, "–")
+    .replace(/\busually\s+points\s+to\b/gi, "indicates")
+    .replace(/\busually\s+means\b/gi, "shows")
+    .replace(/\bneeds\s+to\s+be\s+confirmed\b/gi, "requires targeted diagnosis")
+    .replace(/\bour\s+team\s+is\s+tracing\b/gi, "Myriad Green is isolating")
+    .replace(/\bthis\s+request\s+becomes\s+relevant\b/gi, "This service is used")
+    .replace(
+      /The\s+source\s+still\s+needs\s+to\s+be\s+confirmed\s+before\s+repairs\s+begin\./gi,
       "Targeted testing identifies the fault before repair work begins."
     );
 }

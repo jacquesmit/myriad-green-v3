@@ -311,9 +311,137 @@ function looksLikeClause(value) {
     return false;
   }
 
-  return /\b(is|are|was|were|does|do|can|rises?|drops?|fails?|appears?|responds?|runs?|needs?|shows?|starts?|stops?|becomes?|feels?|backs?)\b/.test(
+  return /\b(is|are|was|were|does|do|did|can|will|has|have|had|rises?|drops?|falls?|fails?|appears?|responds?|runs?|needs?|shows?|starts?|stops?|becomes?|feels?|backs?|continues?|suggests?|increases?|decreases?|leaks?|spreads?|collects?|forms?|builds?|returns?|remains?|triggers?|disrupts?|cuts?|loses?|stalls?|floods?|smells?|cycles?)\b/.test(
     text
   );
+}
+
+function inferObservationSubject(problemName, symptomText) {
+  const text = `${safeValue(problemName)} ${safeValue(symptomText)}`.trim().toLowerCase();
+
+  if (/\b(drain|sewer|toilet|stormwater|waste|line|camera|blockage)\b/.test(text)) {
+    return "The drain line";
+  }
+
+  if (/\b(irrigation|sprinkler|valve|controller|zone|coverage)\b/.test(text)) {
+    return "The irrigation system";
+  }
+
+  if (/\b(borehole|pump|pressure|supply)\b/.test(text)) {
+    return "The water system";
+  }
+
+  if (/\b(pool)\b/.test(text)) {
+    return "The pool";
+  }
+
+  return "The property";
+}
+
+function buildDefaultProblemObservation(problemName) {
+  const text = safeValue(problemName).trim().toLowerCase();
+
+  if (text.includes("slab")) {
+    return "Warm patches, damp flooring, or unexplained moisture appear inside the property.";
+  }
+
+  if (text.includes("pool")) {
+    return "Pool water levels drop faster than normal even when the surface looks calm.";
+  }
+
+  if (text.includes("underground")) {
+    return "Wet ground, soft paving, or unexplained surface moisture appears outside.";
+  }
+
+  if (text.includes("wall")) {
+    return "Paint blisters, staining, or damp patches become visible on the wall.";
+  }
+
+  if (text.includes("water bill")) {
+    return "Monthly water usage climbs even though daily routines stay the same.";
+  }
+
+  if (text.includes("kitchen drain")) {
+    return "The kitchen sink drains slowly and wastewater backs up around the trap.";
+  }
+
+  if (text.includes("sewer line")) {
+    return "Multiple fixtures back up and wastewater flow becomes unreliable.";
+  }
+
+  if (text.includes("toilet")) {
+    return "The toilet rises high, drains slowly, or overflows during flushing.";
+  }
+
+  if (text.includes("stormwater")) {
+    return "Surface water pools around the drain instead of clearing away.";
+  }
+
+  if (text.includes("grease")) {
+    return "Wastewater slows down and foul smells build up near the kitchen line.";
+  }
+
+  if (text.includes("broken sewer pipe")) {
+    return "Recurring blockages, foul smells, or ground movement keep appearing along the drain run.";
+  }
+
+  if (text.includes("root intrusion")) {
+    return "The same drain blocks again soon after it has been cleared.";
+  }
+
+  if (text.includes("collapsed drain line")) {
+    return "Multiple drains back up and wastewater has nowhere to flow.";
+  }
+
+  if (text.includes("unknown drain blockage")) {
+    return "Water drains away slowly and the blockage source is not obvious from the surface.";
+  }
+
+  if (text.includes("recurring drain problem")) {
+    return "The same line keeps blocking again after temporary clearing.";
+  }
+
+  if (text.includes("low water pressure")) {
+    return "Sprinkler coverage weakens and zones stop reaching their normal range.";
+  }
+
+  if (text.includes("broken sprinkler")) {
+    return "A sprinkler head sprays unevenly, leaks, or fails to lift correctly.";
+  }
+
+  if (text.includes("valve failure")) {
+    return "Zones stay on, fail to start, or cycle at the wrong time.";
+  }
+
+  if (text.includes("controller fault")) {
+    return "Zones fail to start, skip schedules, or keep running unexpectedly.";
+  }
+
+  if (text.includes("pipe leak")) {
+    return "Wet patches, soggy soil, or pressure loss appear around the irrigation line.";
+  }
+
+  if (text.includes("low borehole pressure")) {
+    return "Water pressure drops and flow becomes unreliable at outlets.";
+  }
+
+  if (text.includes("pump not starting")) {
+    return "The pump stays silent and no water reaches the property.";
+  }
+
+  if (text.includes("pressure controller fault")) {
+    return "Pressure fluctuates sharply and the pump does not respond consistently.";
+  }
+
+  if (text.includes("no water supply")) {
+    return "Water stops flowing to the property without warning.";
+  }
+
+  if (text.includes("pump cycling problem")) {
+    return "The pump starts and stops repeatedly during normal use.";
+  }
+
+  return "";
 }
 
 function toGerund(word) {
@@ -372,12 +500,36 @@ function inferProblemCause(problemName, serviceName, step1, step2) {
   const serviceLower = safeValue(serviceName).trim().toLowerCase();
   const diagnosticFocus = stripTrailingPunctuation(firstNonEmpty(step1, step2)).toLowerCase();
 
+  if (problemLower.includes("root intrusion")) {
+    return "roots entering cracked joints or weak sections of pipework";
+  }
+
+  if (problemLower.includes("collapsed drain")) {
+    return "a failed pipe section or ground movement along the drain line";
+  }
+
+  if (problemLower.includes("broken sewer pipe")) {
+    return "cracked pipework, failed joints, or movement along the sewer line";
+  }
+
+  if (problemLower.includes("unknown drain blockage")) {
+    return "a concealed obstruction or a damaged section deeper in the line";
+  }
+
+  if (problemLower.includes("recurring drain problem")) {
+    return "an unresolved restriction, root growth, or pipe damage deeper in the system";
+  }
+
   if (problemLower.includes("leak")) {
     return "hidden pipe damage or a failing joint";
   }
 
   if (problemLower.includes("blocked") || problemLower.includes("blockage")) {
     return "a blockage building up in the line";
+  }
+
+  if (problemLower.includes("pressure controller")) {
+    return "unstable power, controller failure, or switching faults in the pressure system";
   }
 
   if (problemLower.includes("controller")) {
@@ -390,6 +542,10 @@ function inferProblemCause(problemName, serviceName, step1, step2) {
 
   if (problemLower.includes("valve")) {
     return "a valve fault or an electrical control issue";
+  }
+
+  if (problemLower.includes("no water supply")) {
+    return "pump, control, or pressure faults inside the water system";
   }
 
   if (problemLower.includes("pressure")) {
@@ -459,25 +615,26 @@ function buildProblemTriggerSentence(problemName, cause, suburbName, variant) {
     return "";
   }
 
-  const baseProblem = lowerFirst(withIndefiniteArticle(problemName.toLowerCase()));
-
   if (variant === 0) {
-    return `${upperFirst(causeText)} is a common cause of ${baseProblem}${suburbName ? ` in ${suburbName}` : ""}.`;
+    return `This indicates ${lowerFirst(causeText)}.`;
   }
 
   if (variant === 1) {
-    return suburbName
-      ? `${upperFirst(causeText)} is one of the main faults behind ${baseProblem} on ${suburbName} properties.`
-      : `${upperFirst(causeText)} is one of the main faults behind ${baseProblem}.`;
+    return `The pattern is consistent with ${lowerFirst(causeText)}.`;
   }
 
-  return `${upperFirst(causeText)} can keep the fault active and increase repair work if it is left unresolved.`;
+  return `That condition lines up with ${lowerFirst(causeText)}.`;
 }
 
 function buildProblemObservationSentence(problemName, suburbName, symptomText, variant) {
   const symptom = stripTrailingPunctuation(symptomText);
   if (!symptom) {
     return "";
+  }
+
+  const defaultObservation = buildDefaultProblemObservation(problemName);
+  if (defaultObservation) {
+    return defaultObservation;
   }
 
   if (looksLikeClause(symptom)) {
@@ -492,48 +649,200 @@ function buildProblemObservationSentence(problemName, suburbName, symptomText, v
     return `One clear sign is that ${lowerFirst(symptom)}.`;
   }
 
+  const subject = inferObservationSubject(problemName, symptom);
   if (variant === 0) {
-    return `A visible warning sign is ${lowerFirst(symptom)}.`;
+    return `${subject} shows ${lowerFirst(symptom)}.`;
   }
 
   if (variant === 1) {
     return `Homeowners in ${suburbName} notice ${lowerFirst(symptom)}.`;
   }
 
-  return `One sign on the property is ${lowerFirst(symptom)}.`;
+  return `Visible changes include ${lowerFirst(symptom)}.`;
 }
 
 function buildProblemCauseExplanation(problemName, cause, suburbName) {
-  const causeText = stripTrailingPunctuation(cause);
   const problemLower = safeValue(problemName).trim().toLowerCase();
 
+  if (problemLower.includes("bill")) {
+    return `A high water bill in ${suburbName} pushes running costs above normal household use.`;
+  }
+
+  if (problemLower.includes("controller")) {
+    return `A controller fault in ${suburbName} disrupts zone timing, startup, or shutdown behavior.`;
+  }
+
+  if (problemLower.includes("root intrusion")) {
+    return `A root intrusion blockage in ${suburbName} restricts flow and causes repeated drain backups.`;
+  }
+
+  if (problemLower.includes("collapsed drain")) {
+    return `A collapsed drain line in ${suburbName} stops wastewater from moving through the system normally.`;
+  }
+
+  if (problemLower.includes("broken sewer pipe")) {
+    return `A broken sewer pipe in ${suburbName} disrupts drainage and can lead to recurring blockages or foul smells.`;
+  }
+
+  if (problemLower.includes("unknown drain blockage")) {
+    return `An unknown drain blockage in ${suburbName} slows drainage and makes the fault harder to locate from the surface.`;
+  }
+
+  if (problemLower.includes("recurring drain problem")) {
+    return `A recurring drain problem in ${suburbName} keeps the same line blocking again after temporary clearing.`;
+  }
+
+  if (problemLower.includes("kitchen drain")) {
+    return `A blocked kitchen drain in ${suburbName} slows sink discharge and causes wastewater to back up.`;
+  }
+
+  if (problemLower.includes("sewer line")) {
+    return `A blocked sewer line in ${suburbName} disrupts multiple fixtures and normal wastewater flow.`;
+  }
+
+  if (problemLower.includes("toilet")) {
+    return `A blocked toilet in ${suburbName} causes slow flushing, rising water, or overflow risk.`;
+  }
+
+  if (problemLower.includes("stormwater")) {
+    return `A blocked stormwater drain in ${suburbName} traps runoff and causes pooling around the property.`;
+  }
+
+  if (problemLower.includes("grease")) {
+    return `A grease blockage in ${suburbName} slows kitchen drainage and causes recurring odours or backups.`;
+  }
+
+  if (problemLower.includes("slab")) {
+    return `A slab leak in ${suburbName} can create damp flooring, warm patches, or unexplained water loss.`;
+  }
+
+  if (problemLower.includes("pool")) {
+    return `A pool leak in ${suburbName} causes unexplained water loss and ongoing top-up demand.`;
+  }
+
+  if (problemLower.includes("underground")) {
+    return `An underground pipe leak in ${suburbName} creates wet ground, soft paving, or pressure loss.`;
+  }
+
+  if (problemLower.includes("wall")) {
+    return `A wall leak in ${suburbName} causes staining, blistering, or damp patches inside the property.`;
+  }
+
+  if (problemLower.includes("low water pressure")) {
+    return `Low water pressure in ${suburbName} leaves irrigation zones short of coverage and reduces system performance.`;
+  }
+
+  if (problemLower.includes("broken sprinkler")) {
+    return `A broken sprinkler in ${suburbName} throws water unevenly and leaves parts of the landscape under-watered.`;
+  }
+
+  if (problemLower.includes("valve")) {
+    return `A valve failure in ${suburbName} prevents zones from opening or closing as they should.`;
+  }
+
+  if (problemLower.includes("pipe leak")) {
+    return `A pipe leak in ${suburbName} wastes water and reduces irrigation pressure across the affected zone.`;
+  }
+
+  if (problemLower.includes("low borehole pressure")) {
+    return `Low borehole pressure in ${suburbName} reduces water delivery and makes supply performance unstable.`;
+  }
+
+  if (problemLower.includes("pump not starting")) {
+    return `A pump that is not starting in ${suburbName} cuts water supply to the property.`;
+  }
+
+  if (problemLower.includes("pressure controller")) {
+    return `A pressure controller fault in ${suburbName} causes unstable switching and erratic water delivery.`;
+  }
+
+  if (problemLower.includes("no water supply")) {
+    return `Loss of water supply in ${suburbName} leaves the property without reliable water delivery.`;
+  }
+
+  if (problemLower.includes("pump cycling")) {
+    return `A pump cycling problem in ${suburbName} causes repeated start-stop behaviour and unstable system pressure.`;
+  }
+
+  return `The ${problemLower} issue in ${suburbName} is affecting normal system performance.`;
+}
+
+function buildProblemLikelyCauseSentence(cause) {
+  const causeText = stripTrailingPunctuation(cause);
   if (!causeText) {
     return "";
   }
 
-  if (problemLower.includes("bill")) {
-    return `${upperFirst(causeText)} can push monthly water charges above normal use in ${suburbName}.`;
+  return `This is often caused by ${lowerFirst(causeText)}.`;
+}
+
+function buildProblemOverviewNextStepSentence(problemName, serviceName, stepText) {
+  const problemLower = safeValue(problemName).trim().toLowerCase();
+  const serviceLower = safeValue(serviceName).trim().toLowerCase();
+  const step = stripTrailingPunctuation(stepText);
+
+  if (problemLower.includes("controller")) {
+    return "The controller and related inputs are tested to isolate the exact fault before repairs begin.";
   }
 
-  return `${upperFirst(causeText)} can trigger ${lowerFirst(withIndefiniteArticle(problemLower))} on ${suburbName} properties.`;
+  if (
+    serviceLower.includes("drain camera inspection") ||
+    problemLower.includes("root intrusion") ||
+    problemLower.includes("collapsed drain") ||
+    problemLower.includes("broken sewer pipe") ||
+    problemLower.includes("unknown drain blockage") ||
+    problemLower.includes("recurring drain problem")
+  ) {
+    return "A drain camera inspection is used to confirm the fault location and plan the correct repair.";
+  }
+
+  if (problemLower.includes("bill") || serviceLower.includes("leak")) {
+    return "The system is tested to locate the hidden water loss before repairs begin.";
+  }
+
+  if (serviceLower.includes("irrigation")) {
+    return "The affected zones and control components are tested to isolate the fault before repairs begin.";
+  }
+
+  if (serviceLower.includes("borehole") || serviceLower.includes("pump")) {
+    return "The pump, controls, and pressure equipment are tested to isolate the failed component before repairs begin.";
+  }
+
+  if (!step) {
+    return "Targeted testing is used to isolate the exact fault before repairs begin.";
+  }
+
+  return `The next step is to ${lowerFirst(step)}.`;
 }
 
 function buildProblemImpactSentence(problemName, symptomText, suburbName) {
-  const symptom = stripTrailingPunctuation(symptomText);
+  const problemLower = safeValue(problemName).trim().toLowerCase();
 
-  if (!symptom) {
-    return "Normal use on the property can keep deteriorating while the fault stays active.";
+  if (problemLower.includes("bill")) {
+    return "Monthly water costs keep rising while the hidden loss remains active.";
   }
 
-  if (/^no\s+/i.test(symptom)) {
-    return `A lack of ${lowerCaseWords(symptom).replace(/^no\s+/i, "")} makes the real fault harder to spot while the issue keeps disrupting the property.`;
+  if (problemLower.includes("controller")) {
+    return "Scheduled watering becomes unreliable and adjacent components can be affected.";
   }
 
-  if (looksLikeClause(symptom)) {
-    return `When ${lowerFirst(symptom)}, normal use on the property is already being disrupted.`;
+  if (problemLower.includes("drain") || problemLower.includes("blocked") || problemLower.includes("blockage")) {
+    return "Wastewater flow stays restricted and normal use on the property becomes unreliable.";
   }
 
-  return `When the property shows ${lowerFirst(symptom)}, the fault is already affecting normal use and needs targeted diagnosis.`;
+  if (problemLower.includes("leak") || problemLower.includes("wall") || problemLower.includes("slab") || problemLower.includes("pool")) {
+    return "Water loss keeps affecting nearby surfaces and can widen the repair scope if it is ignored.";
+  }
+
+  if (problemLower.includes("pressure") || problemLower.includes("sprinkler") || problemLower.includes("valve")) {
+    return "System performance stays uneven and the affected section continues to fall behind normal output.";
+  }
+
+  if (problemLower.includes("pump") || problemLower.includes("borehole") || problemLower.includes("supply")) {
+    return "Water supply remains unstable and the equipment keeps working under the wrong conditions.";
+  }
+
+  return "Normal use on the property stays disrupted until the fault is isolated.";
 }
 
 function buildProblemNextStepSentence(stepText) {
@@ -567,12 +876,12 @@ function contextualizeParagraph(text, contextValues, contextSentence) {
     const remainder = output.replace(/^A\s+first\s+visit\s+usually\s+starts\s+by\s+/i, "");
     output = `Our first visit focuses on ${toGerundPhrase(remainder)}`;
   }
-  output = output.replace(/\busually points to\b/gi, "is driven by");
-  output = output.replace(/\busually means\b/gi, "shows");
-  output = output.replace(/\bneeds to be confirmed\b/gi, "requires targeted diagnosis");
-  output = output.replace(/\bour team is tracing\b/gi, "we are isolating");
+  output = output.replace(/\busually\s+points\s+to\b/gi, "indicates");
+  output = output.replace(/\busually\s+means\b/gi, "shows");
+  output = output.replace(/\bneeds\s+to\s+be\s+confirmed\b/gi, "requires targeted diagnosis");
+  output = output.replace(/\bour\s+team\s+is\s+tracing\b/gi, "Myriad Green is isolating");
   output = output.replace(
-    /The source still needs to be confirmed before repairs begin\./gi,
+    /The\s+source\s+still\s+needs\s+to\s+be\s+confirmed\s+before\s+repairs\s+begin\./gi,
     "Targeted testing identifies the fault before repair work begins."
   );
   output = output.replace(/^This page covers\s+/i, "This page focuses on ");
@@ -598,12 +907,11 @@ function buildProblemHeroIntro(base, serviceName, problemName, suburbName, city,
 function buildProblemOverview(base, serviceName, problemName, suburbName, city, symptomValues, step1, step2) {
   const cause = inferProblemCause(problemName, serviceName, step1, step2);
   const firstStep = firstNonEmpty(step1, "inspect the visible symptoms and narrow down the likely cause");
-  const symptom = pickSignalByVariant(pickListItems(symptomValues, 3), 1);
 
   return joinSentences(
     buildProblemCauseExplanation(problemName, cause, suburbName),
-    buildProblemImpactSentence(problemName, symptom, suburbName),
-    buildProblemNextStepSentence(firstStep)
+    buildProblemLikelyCauseSentence(cause),
+    buildProblemOverviewNextStepSentence(problemName, serviceName, firstStep)
   );
 }
 
@@ -814,11 +1122,11 @@ function normalizeRenderedCopy(html) {
 }
 
 function buildProblemLocalAreaIntro(serviceName, problemName, suburbName, city) {
-  return `Myriad Green provides ${serviceName.toLowerCase()} across ${suburbName} and surrounding ${city} areas, with fast response and practical on-site support.`;
+  return `Myriad Green provides ${serviceName.toLowerCase()} across ${suburbName}, including surrounding estates and residential properties in ${city}, with practical on-site support when ${problemName.toLowerCase()} affects normal operation.`;
 }
 
 function buildProblemLocalAreaDetail(serviceName, problemName, suburbName, city) {
-  return `${upperFirst(withIndefiniteArticle(lowerCaseWords(problemName)))} needs targeted diagnosis before repair work starts. Our ${serviceName.toLowerCase()} process isolates the fault and defines the right next step for the property.`;
+  return `Technicians test the affected system on site, confirm the failed section, and then set out the most practical repair path for the property.`;
 }
 
 function replaceProblemLocalAreaCopy(html, introCopy, detailCopy) {
@@ -831,11 +1139,25 @@ function replaceProblemLocalAreaCopy(html, introCopy, detailCopy) {
 function finalizeRenderedCopy(html) {
   return html
     .replace(/â€“|â€”|Ã¢â‚¬â€œ|Ã¢â‚¬â€|ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“|ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â|&mdash;|&ndash;/g, "–")
-    .replace(/\busually points to\b/gi, "is driven by")
-    .replace(/\busually means\b/gi, "shows")
-    .replace(/\bneeds to be confirmed\b/gi, "requires targeted diagnosis")
+    .replace(/\busually\s+points\s+to\b/gi, "indicates")
+    .replace(/\busually\s+means\b/gi, "shows")
+    .replace(/\bneeds\s+to\s+be\s+confirmed\b/gi, "requires targeted diagnosis")
+    .replace(/\bour\s+team\s+is\s+tracing\b/gi, "Myriad Green is isolating")
     .replace(
-      /The source still needs to be confirmed before repairs begin\./gi,
+      /The\s+source\s+still\s+needs\s+to\s+be\s+confirmed\s+before\s+repairs\s+begin\./gi,
+      "Targeted testing identifies the fault before repair work begins."
+    );
+}
+
+function finalizeRenderedCopy(html) {
+  return html
+    .replace(/Ã¢â‚¬â€œ|Ã¢â‚¬â€|ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“|ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â|ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã…â€œ|ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â|â€“|â€”|&mdash;|&ndash;/g, "–")
+    .replace(/\busually\s+points\s+to\b/gi, "indicates")
+    .replace(/\busually\s+means\b/gi, "shows")
+    .replace(/\bneeds\s+to\s+be\s+confirmed\b/gi, "requires targeted diagnosis")
+    .replace(/\bour\s+team\s+is\s+tracing\b/gi, "Myriad Green is isolating")
+    .replace(
+      /The\s+source\s+still\s+needs\s+to\s+be\s+confirmed\s+before\s+repairs\s+begin\./gi,
       "Targeted testing identifies the fault before repair work begins."
     );
 }
