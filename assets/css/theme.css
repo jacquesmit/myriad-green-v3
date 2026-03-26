@@ -7,6 +7,7 @@
   --color-bg: #ffffff;
   --color-bg-alt: #f6faf6;
   --color-surface: #ffffff;
+  --color-surface-alt: var(--color-bg-alt);
   --color-text: #222222;
   --color-text-muted: #5c5f5c;
   --color-primary: #87e64b;
@@ -66,6 +67,7 @@
   --color-bg: #0f150f;
   --color-bg-alt: #121c12;
   --color-surface: #1b261b;
+  --color-surface-alt: var(--color-bg-alt);
   --color-text: #f1f7ef;
   --color-text-muted: #b7c4b7;
   --color-border: #273327;

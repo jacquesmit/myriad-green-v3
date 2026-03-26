@@ -1,6 +1,7 @@
 const PDFDocument = require("pdfkit");
 const fs = require("fs");
 const path = require("path");
+const BUSINESS_CONTACT = require("../shared/businessContact");
 
 const LOGO_PATH = path.join(__dirname, "..", "assets", "myriad_green_logo.png");
 const TEMPLATE_TYPES = {
@@ -456,7 +457,7 @@ const drawFooterOnAllPages = (doc) => {
       .fillColor("#FFFFFF")
       .opacity(0.9)
       .text(
-        "Website: www.myriadgreen.co.za\nEmail: irrigationsa@gmail.com\nPhone/WhatsApp: +27 81 721 6701",
+        `Website: www.myriadgreen.co.za\nEmail: ${BUSINESS_CONTACT.email}\nPhone/WhatsApp: ${BUSINESS_CONTACT.phoneDisplay}`,
         footerX + footerPaddingX,
         textY,
         {
@@ -1650,7 +1651,7 @@ const renderCommercialDocument = ({ doc, theme, layout, data }, { mode }) => {
       left: [
         { label: "Client", value: payload.clientName || "Client" },
         { label: "Email", value: payload.clientEmail || "client@example.com" },
-        { label: "Phone", value: payload.clientPhone || "+27 81 721 6701" },
+        { label: "Phone", value: payload.clientPhone || BUSINESS_CONTACT.phoneDisplay },
         { label: "Address", value: payload.clientAddress || "Gauteng" },
       ],
       right: [

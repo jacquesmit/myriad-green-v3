@@ -7,8 +7,6 @@ Allow: /terms.html
 Disallow: /admin/
 Disallow: /api/
 Disallow: /*.json$
-Disallow: /*.js$
-Disallow: /*.css$
 
 # Allow crawling of sitemap
 Sitemap: https://www.myriadgreen.co.za/sitemap.xml

@@ -13,12 +13,15 @@
     {{structured_data_json}}
   </script>
 
-  <link rel="stylesheet" href="assets/css/theme.css" />
-  <link rel="stylesheet" href="assets/css/layout.css" />
-  <link rel="stylesheet" href="assets/css/components.css" />
-  <link rel="stylesheet" href="assets/css/services.css" />
+  <link rel="stylesheet" href="/assets/css/theme.css" />
+  <link rel="stylesheet" href="/assets/css/layout.css" />
+  <link rel="stylesheet" href="/assets/css/components.css" />
+  <link rel="stylesheet" href="/assets/css/nav-footer.css" />
+  <link rel="stylesheet" href="/assets/css/services.css" />
 </head>
 <body>
+  <div id="nav-placeholder"></div>
+
   <main id="main-content">
     <article>
       <header>
@@ -103,37 +106,7 @@
         </details>
       </section>
 
-      <section id="internal-links" aria-labelledby="internal-links-heading">
-        <h2 id="internal-links-heading">Internal Links</h2>
-        <section aria-labelledby="parent-service-heading">
-          <h3 id="parent-service-heading">Related Service</h3>
-          <p><a href="{{parent_service_url}}">{{parent_service_name}}</a></p>
-        </section>
-        <section aria-labelledby="nearby-areas-heading">
-          <h3 id="nearby-areas-heading">Nearby Areas</h3>
-          <ul>
-            <li><a href="{{nearby_link_1_url}}">{{nearby_link_1_name}}</a></li>
-            <li><a href="{{nearby_link_2_url}}">{{nearby_link_2_name}}</a></li>
-            <li><a href="{{nearby_link_3_url}}">{{nearby_link_3_name}}</a></li>
-          </ul>
-        </section>
-        <section aria-labelledby="related-problems-heading">
-          <h3 id="related-problems-heading">Related Problems</h3>
-          <ul>
-            <li><a href="{{related_problem_1_url}}">{{related_problem_1_name}}</a></li>
-            <li><a href="{{related_problem_2_url}}">{{related_problem_2_name}}</a></li>
-            <li><a href="{{related_problem_3_url}}">{{related_problem_3_name}}</a></li>
-          </ul>
-        </section>
-        <section aria-labelledby="service-options-heading">
-          <h3 id="service-options-heading">Service Options</h3>
-          <ul>
-            <li><a href="{{related_intent_1_url}}">{{related_intent_1_name}}</a></li>
-            <li><a href="{{related_intent_2_url}}">{{related_intent_2_name}}</a></li>
-            <li><a href="{{related_intent_3_url}}">{{related_intent_3_name}}</a></li>
-          </ul>
-        </section>
-      </section>
+      {{internal_links}}
 
       <section id="cta" aria-labelledby="cta-heading">
         <h2 id="cta-heading">Book {{service}} in {{suburb}}</h2>
@@ -144,8 +117,13 @@
         </p>
       </section>
     </article>
+
   </main>
 
-  <script src="assets/js/site-init.js" defer></script>
+  <div id="footer-placeholder"></div>
+  <div id="booking-modal-root"></div>
+
+  <script defer src="/assets/js/booking.js"></script>
+  <script type="module" src="/assets/js/site-init.js"></script>
 </body>
 </html>

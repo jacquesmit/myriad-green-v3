@@ -1,4 +1,6 @@
 /* Booking modal module manages open/close, service preselection, and placeholder submit logic. */
+// payments are currently frozen while provider onboarding is pending
+const PAYMENTS_ENABLED = false;
 const BookingModal = (() => {
   let backdrop;
   let modal;
@@ -9,7 +11,10 @@ const BookingModal = (() => {
   let paymentCta;
   let paymentStatus;
   let submitButton;
+  let paymentInitFailed = false;
   let previouslyFocused;
+  let lockedScrollY = 0;
+  let isScrollLocked = false;
   let focusableElements = [];
   let firstFocusable;
   let lastFocusable;
@@ -22,6 +27,18 @@ const BookingModal = (() => {
     close: '[data-close-modal]',
     status: '[data-booking-status]',
     trigger: '[data-book-service]'
+  };
+
+  const serviceMap = {
+    "leak-detection": "Leak Detection",
+    "irrigation-repair": "Irrigation Repair",
+    "drain-unblocking": "Drain Unblocking",
+    "borehole-pump-systems": "Borehole Pump Systems"
+  };
+
+  const serviceAliases = {
+    "Irrigation Repair": "Irrigation Systems",
+    "Borehole Pump Systems": "Backup Water Systems"
   };
 
   function cacheElements() {
@@ -40,10 +57,12 @@ const BookingModal = (() => {
 
   function open(serviceName = 'General Consultation') {
     if (!modal) return;
+    paymentInitFailed = false;
     previouslyFocused = document.activeElement;
     setServiceValue(serviceName);
     backdrop.classList.add('is-open');
     backdrop.setAttribute('aria-hidden', 'false');
+    lockBodyScroll();
     setFocusableElements();
     (firstFocusable || modal).focus({ preventScroll: true });
     // ensure payment UI reflects selected service
@@ -53,6 +72,7 @@ const BookingModal = (() => {
   function close() {
     backdrop?.classList.remove('is-open');
     backdrop?.setAttribute('aria-hidden', 'true');
+    unlockBodyScroll();
     focusableElements = [];
     firstFocusable = undefined;
     lastFocusable = undefined;
@@ -61,10 +81,53 @@ const BookingModal = (() => {
     }
   }
 
+  function lockBodyScroll() {
+    if (isScrollLocked) return;
+    lockedScrollY = window.scrollY || window.pageYOffset || 0;
+    document.body.classList.add('modal-open');
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${lockedScrollY}px`;
+    document.body.style.left = '0';
+    document.body.style.right = '0';
+    document.body.style.width = '100%';
+    isScrollLocked = true;
+  }
+
+  function unlockBodyScroll() {
+    if (!isScrollLocked) return;
+    const topValue = document.body.style.top;
+    document.body.classList.remove('modal-open');
+    document.body.style.position = '';
+    document.body.style.top = '';
+    document.body.style.left = '';
+    document.body.style.right = '';
+    document.body.style.width = '';
+    const restoredScrollY = topValue ? Math.abs(parseInt(topValue, 10)) : lockedScrollY;
+    window.scrollTo(0, restoredScrollY);
+    isScrollLocked = false;
+  }
+
+  function resolveServiceValue(value, select) {
+    const normalizedValue = typeof value === 'string' ? value.trim() : '';
+    const mappedValue = serviceMap[normalizedValue] || normalizedValue;
+    const candidates = [
+      mappedValue,
+      serviceAliases[mappedValue],
+      serviceAliases[normalizedValue],
+      normalizedValue
+    ].filter(Boolean);
+
+    const matchedOption = candidates.find((candidate) =>
+      Array.from(select.options).some((option) => option.value === candidate)
+    );
+
+    return matchedOption || mappedValue;
+  }
+
   function setServiceValue(value) {
     const select = form?.querySelector('select[name="service"]');
     if (select) {
-      select.value = value;
+      select.value = resolveServiceValue(value, select);
     }
   }
 
@@ -72,6 +135,19 @@ const BookingModal = (() => {
     "Leak Detection": 1650,
     "Drain Unblocking": 1350
   };
+  const EMERGENCY_SERVICES = Object.keys(EMERGENCY_LOOKUP);
+
+  function setFallbackEmergencyStatus() {
+    if (!statusText) return;
+    statusText.className = 'form-status';
+    statusText.textContent = 'Online payment temporarily unavailable. We’ll contact you shortly to finalise.';
+  }
+
+  function setEmergencyContactStatus() {
+    if (!statusText) return;
+    statusText.className = 'form-status error';
+    statusText.innerHTML = 'We could not confirm this emergency booking online right now. Please <a href="https://wa.me/27629233952" target="_blank" rel="noopener">WhatsApp</a> or <a href="tel:+27629233952">Call 062 923 3952</a> for immediate assistance.';
+  }
 
   async function handleSubmit(event) {
     event.preventDefault();
@@ -91,12 +167,17 @@ const BookingModal = (() => {
       address: String(formData.get('address') || '').trim(),
       notes: String(formData.get('notes') || '').trim()
     };
-    const emergencyServices = ["Leak Detection", "Drain Unblocking"];
-    if (emergencyServices.includes(payload.service)) {
+    const isEmergency = EMERGENCY_SERVICES.includes(payload.service);
+    if (isEmergency && PAYMENTS_ENABLED && !paymentInitFailed) {
       if (statusText) {
-        statusText.textContent = 'Please complete the call‑out payment using the button above before submitting.';
+        statusText.className = 'form-status error';
+        statusText.textContent = 'Please complete payment to confirm emergency dispatch.';
       }
       return;
+    }
+
+    if (isEmergency && (!PAYMENTS_ENABLED || paymentInitFailed)) {
+      setFallbackEmergencyStatus();
     }
 
     const requiredValid = payload.name && payload.email && payload.phone && payload.service;
@@ -143,8 +224,19 @@ const BookingModal = (() => {
         setTimeout(() => {
           close();
         }, 2000);
-      } else if (statusText) {
-        statusText.textContent = 'Sorry, something went wrong. Please try again.';
+      } else {
+        const backendMessage = String(data?.error || data?.message || '').toLowerCase();
+        const emergencyRejected = isEmergency && (
+          backendMessage.includes('payment') ||
+          backendMessage.includes('emergency') ||
+          response.status === 400 ||
+          response.status === 403
+        );
+        if (emergencyRejected) {
+          setEmergencyContactStatus();
+        } else if (statusText) {
+          statusText.textContent = 'Sorry, something went wrong. Please try again.';
+        }
       }
     } catch (error) {
       if (statusText) {
@@ -157,9 +249,20 @@ const BookingModal = (() => {
 
   function handleServiceChange() {
     if (!form) return;
-    const service = form.querySelector('select[name="service"]').value;
+    const serviceSelect = form.querySelector('select[name="service"]');
+    if (!serviceSelect) return;
+    const service = serviceSelect.value;
     const isEmergency = Object.prototype.hasOwnProperty.call(EMERGENCY_LOOKUP, service);
     if (isEmergency) {
+      if (!PAYMENTS_ENABLED || paymentInitFailed) {
+        paymentBlock?.setAttribute('hidden', 'true');
+        submitButton?.removeAttribute('disabled');
+        setFallbackEmergencyStatus();
+        if (paymentStatus) paymentStatus.textContent = '';
+        if (paymentCta) paymentCta.removeAttribute('disabled');
+        return;
+      }
+
       if (paymentBlock) {
         paymentBlock.removeAttribute('hidden');
         const copy = paymentBlock.querySelector('[data-payment-copy]');
@@ -169,16 +272,30 @@ const BookingModal = (() => {
         }
       }
       submitButton?.setAttribute('disabled', 'true');
+      if (statusText) {
+        statusText.className = 'booking-status';
+        statusText.textContent = '';
+      }
     } else {
       paymentBlock?.setAttribute('hidden', 'true');
       submitButton?.removeAttribute('disabled');
+      if (statusText) {
+        statusText.className = 'booking-status';
+        statusText.textContent = '';
+      }
       if (paymentStatus) paymentStatus.textContent = '';
+      if (paymentCta) paymentCta.removeAttribute('disabled');
     }
   }
 
   async function handlePayClick(event) {
     event.preventDefault();
     if (!form) return;
+
+    if (!PAYMENTS_ENABLED) {
+      if (paymentStatus) paymentStatus.textContent = 'Payments temporarily unavailable — WhatsApp us';
+      return;
+    }
 
     const formData = new FormData(form);
     const rawName = formData.get('name') || formData.get('fullName') || '';
@@ -211,9 +328,13 @@ const BookingModal = (() => {
         window.location.href = data.url;
         return;
       }
-      if (paymentStatus) paymentStatus.textContent = 'Unable to start payment. Please try again later.';
+      paymentInitFailed = true;
+      if (paymentStatus) paymentStatus.textContent = 'Unable to start payment. You can still submit your booking and we will finalise payment with you.';
+      handleServiceChange();
     } catch (err) {
-      if (paymentStatus) paymentStatus.textContent = 'Unable to start payment. Please try again later.';
+      paymentInitFailed = true;
+      if (paymentStatus) paymentStatus.textContent = 'Unable to start payment. You can still submit your booking and we will finalise payment with you.';
+      handleServiceChange();
     } finally {
       paymentCta?.removeAttribute('disabled');
     }
@@ -256,7 +377,8 @@ const BookingModal = (() => {
       const trigger = event.target.closest(selectors.trigger);
       if (trigger) {
         const service = trigger.getAttribute('data-book-service');
-        open(service);
+        const mappedService = serviceMap[service] || service;
+        open(mappedService);
       }
     });
 

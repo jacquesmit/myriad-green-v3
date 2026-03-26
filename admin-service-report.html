@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Admin Service Report | Myriad Green</title>
+    <link rel="stylesheet" href="assets/css/theme.css" />
+    <link rel="stylesheet" href="assets/css/layout.css" />
+    <link rel="stylesheet" href="assets/css/components.css" />
+    <link rel="stylesheet" href="assets/css/nav-footer.css" />
+    <link rel="stylesheet" href="assets/css/services.css" />
+    <link rel="stylesheet" href="assets/css/admin-service-report.css" />
+  </head>
+  <body>
+    <div id="site-nav" data-include="partials/nav.html"></div>
+
+    <main class="admin-layout">
+      <div class="admin-layout__inner">
+        <section class="admin-panel admin-panel--service-report">
+          <header class="admin-panel__header">
+            <p class="admin-panel__eyebrow">Internal · Service Operations</p>
+            <h1>Admin Service Report</h1>
+            <p>Capture and submit detailed service reports directly to the client plus internal records.</p>
+          </header>
+
+          <div id="form-status" class="form-status" hidden role="status" aria-live="polite"></div>
+
+          <div class="admin-card">
+            <form id="admin-service-report-form" class="admin-form" novalidate>
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <h2 class="admin-section__title">Client Details</h2>
+                  <p class="admin-section__subtitle">Who we helped and where.</p>
+                </header>
+                <div class="admin-section__body admin-grid admin-grid--2col">
+                  <div class="form-group">
+                    <label for="clientName">Client Name <span class="required-indicator" aria-hidden="true">*</span></label>
+                    <input id="clientName" name="clientName" type="text" required aria-required="true" />
+                  </div>
+                  <div class="form-group">
+                    <label for="clientEmail">Client Email <span class="required-indicator" aria-hidden="true">*</span></label>
+                    <input id="clientEmail" name="clientEmail" type="email" required aria-required="true" />
+                  </div>
+                  <div class="form-group">
+                    <label for="clientPhone">Client Phone</label>
+                    <input id="clientPhone" name="clientPhone" type="text" />
+                  </div>
+                  <div class="form-group form-group--full">
+                    <label for="clientAddress">Address</label>
+                    <input id="clientAddress" name="clientAddress" type="text" />
+                  </div>
+                  <div class="form-group">
+                    <label for="suburb">Suburb</label>
+                    <input id="suburb" name="suburb" type="text" />
+                  </div>
+                  <div class="form-group">
+                    <label for="city">City</label>
+                    <input id="city" name="city" type="text" />
+                  </div>
+                  <div class="form-group">
+                    <label for="province">Province</label>
+                    <input id="province" name="province" type="text" />
+                  </div>
+                </div>
+              </section>
+
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <h2 class="admin-section__title">Service Details</h2>
+                  <p class="admin-section__subtitle">Work performed and site context.</p>
+                </header>
+                <div class="admin-section__body admin-grid admin-grid--2col">
+                  <div class="form-group">
+                    <label for="serviceName">Service Name <span class="required-indicator" aria-hidden="true">*</span></label>
+                    <select id="serviceName" name="serviceName" required aria-required="true">
+                      <option value="Irrigation">Irrigation</option>
+                      <option value="Leak Detection">Leak Detection</option>
+                      <option value="Drain Unblocking">Drain Unblocking</option>
+                      <option value="Backup Water Systems">Backup Water Systems</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="propertyType">Property Type</label>
+                    <select id="propertyType" name="propertyType">
+                      <option value="Residential">Residential</option>
+                      <option value="Commercial">Commercial</option>
+                      <option value="Estate">Estate</option>
+                      <option value="Industrial">Industrial</option>
+                    </select>
+                  </div>
+                </div>
+                <div class="admin-section__body admin-grid admin-grid--full">
+                  <div class="form-group">
+                    <label for="siteNotes">Site Notes</label>
+                    <textarea id="siteNotes" name="siteNotes" rows="3"></textarea>
+                  </div>
+                </div>
+              </section>
+
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <h2 class="admin-section__title">Technician &amp; Visit Details</h2>
+                  <p class="admin-section__subtitle">Timing, scope, and who attended.</p>
+                </header>
+                <div class="admin-section__body admin-grid admin-grid--2col">
+                  <div class="form-group">
+                    <label for="technicianName">Technician Name <span class="required-indicator" aria-hidden="true">*</span></label>
+                    <input id="technicianName" name="technicianName" type="text" required aria-required="true" />
+                  </div>
+                  <div class="form-group">
+                    <label for="visitDate">Visit Date <span class="required-indicator" aria-hidden="true">*</span></label>
+                    <input id="visitDate" name="visitDate" type="date" required aria-required="true" />
+                  </div>
+                  <div class="form-group">
+                    <label for="arrivalTime">Arrival Time</label>
+                    <input id="arrivalTime" name="arrivalTime" type="time" />
+                  </div>
+                  <div class="form-group">
+                    <label for="departureTime">Departure Time</label>
+                    <input id="departureTime" name="departureTime" type="time" />
+                  </div>
+                </div>
+                <div class="admin-section__body admin-grid admin-grid--full">
+                  <div class="form-group">
+                    <label for="technicianNotes">Technician Notes</label>
+                    <textarea id="technicianNotes" name="technicianNotes" rows="3"></textarea>
+                  </div>
+                </div>
+              </section>
+
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <h2 class="admin-section__title">Findings</h2>
+                  <p class="admin-section__subtitle">What we discovered on site.</p>
+                </header>
+                <div class="admin-section__body admin-grid admin-grid--full">
+                  <div class="form-group">
+                    <label for="findings">Findings <span class="required-indicator" aria-hidden="true">*</span></label>
+                    <textarea id="findings" name="findings" rows="4" required aria-required="true"></textarea>
+                  </div>
+                </div>
+              </section>
+
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <h2 class="admin-section__title">Actions Taken</h2>
+                  <p class="admin-section__subtitle">Steps we completed during the visit.</p>
+                </header>
+                <div class="admin-section__body admin-grid admin-grid--full">
+                  <div class="form-group">
+                    <label for="actionsTaken">Actions Taken <span class="required-indicator" aria-hidden="true">*</span></label>
+                    <textarea id="actionsTaken" name="actionsTaken" rows="4" required aria-required="true"></textarea>
+                  </div>
+                </div>
+              </section>
+
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <h2 class="admin-section__title">Recommendations</h2>
+                  <p class="admin-section__subtitle">Next steps tailored to the property.</p>
+                </header>
+                <div class="admin-section__body admin-grid admin-grid--full">
+                  <div class="form-group">
+                    <label for="recommendations">Recommendations <span class="required-indicator" aria-hidden="true">*</span></label>
+                    <textarea id="recommendations" name="recommendations" rows="4" required aria-required="true"></textarea>
+                  </div>
+                </div>
+              </section>
+
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <h2 class="admin-section__title">Materials Used</h2>
+                  <p class="admin-section__subtitle">Parts and materials used during the visit.</p>
+                </header>
+                <div class="admin-section__body">
+                  <div class="materials-table">
+                    <div class="materials-table__header">
+                      <span>Material</span>
+                      <span>Quantity</span>
+                      <span>Notes</span>
+                      <span></span>
+                    </div>
+                    <div id="materialsContainer" class="materials-table__body">
+                      <div id="materialsList" class="materials-table__rows"></div>
+                    </div>
+                    <button type="button" id="addMaterialBtn" class="btn btn-ghost">+ Add material</button>
+                  </div>
+                </div>
+              </section>
+
+              <section class="admin-section">
+                <header class="admin-section__header">
+                  <h2 class="admin-section__title">Follow-Up Details</h2>
+                  <p class="admin-section__subtitle">Next steps and client touchpoints.</p>
+                </header>
+                <div class="admin-section__body admin-grid admin-grid--full">
+                  <div class="form-group form-group--inline">
+                    <input type="checkbox" id="followUpRequired" name="followUpRequired" />
+                    <label for="followUpRequired">Follow-up required</label>
+                  </div>
+                  <div class="form-group">
+                    <label for="followUpNotes">Follow-up Notes</label>
+                    <textarea id="followUpNotes" name="followUpNotes" rows="3"></textarea>
+                  </div>
+                </div>
+              </section>
+
+              <section class="admin-section admin-section--submit">
+                <header class="admin-section__header">
+                  <h2 class="admin-section__title">Submit</h2>
+                  <p class="admin-section__subtitle">Generate the PDF and email both parties.</p>
+                </header>
+                <div class="admin-section__body">
+                  <div class="admin-form__footer">
+                    <p class="admin-form__hint">
+                      A PDF will be generated and emailed to the client and internal team.
+                    </p>
+                    <button type="submit" class="btn btn-primary" id="submitBtn">Submit Service Report</button>
+                  </div>
+                </div>
+              </section>
+            </form>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <div id="site-footer" data-include="partials/footer.html"></div>
+
+    <script src="assets/js/site-init.js" defer></script>
+    <script src="assets/js/admin-service-report.js" defer></script>
+  </body>
+</html>

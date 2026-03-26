@@ -33,6 +33,11 @@
           <option value="General Consultation">General Consultation</option>
         </select>
       </label>
+      <div class="booking-payment" data-payment-block hidden>
+        <p class="form-status" data-payment-copy>Emergency call-out fee payment is required before this booking can be submitted.</p>
+        <button class="btn btn-primary" type="button" data-payment-cta>Pay call-out fee</button>
+        <p class="form-status" data-payment-status aria-live="polite"></p>
+      </div>
       <label>
         Preferred Date
         <input type="date" name="preferredDate" />

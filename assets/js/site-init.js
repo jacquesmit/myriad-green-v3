@@ -74,11 +74,8 @@ import { sendContactEmail } from './email-handler.js';
     }
   }
 
-  function initFooter(root) {
-    const yearEl = root.querySelector('#footer-year');
-    if (yearEl) {
-      yearEl.textContent = new Date().getFullYear();
-    }
+  function initFooter() {
+    // The injected V3 footer partial is static and does not expose runtime hooks.
   }
 
   function initBooking() {

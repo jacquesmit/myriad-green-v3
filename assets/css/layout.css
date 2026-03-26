@@ -160,13 +160,62 @@ main {
 .hero h1 {
   font-size: var(--font-size-h1);
   line-height: var(--line-height-tight);
-  margin-bottom: var(--space-md);
+  margin-bottom: var(--space-sm);
 }
 
 .hero p {
   font-size: var(--font-size-lg);
   color: var(--color-text-muted);
-  margin-bottom: var(--space-lg);
+  margin-bottom: var(--space-md);
+}
+
+.hero h1 + p {
+  line-height: var(--line-height-normal);
+  margin-bottom: var(--space-xs);
+}
+
+.hero .hero-coverage {
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-normal);
+  margin: 0 0 var(--space-sm);
+}
+
+.hero .hero-keywords {
+  margin: 0 0 var(--space-xs);
+  padding-left: var(--space-md);
+  display: grid;
+  gap: var(--space-2xs);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: var(--line-height-normal);
+}
+
+.hero .hero-keywords li {
+  margin: 0;
+}
+
+.hero > .container .actions.actions-inline {
+  display: flex;
+  gap: var(--space-sm);
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: var(--space-2xs);
+  margin-bottom: var(--space-xs);
+}
+
+.hero .hero-fee {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-muted);
+  line-height: var(--line-height-normal);
+  margin-top: var(--space-xs);
+  margin-bottom: var(--space-xs);
+}
+
+@media (max-width: 640px) {
+  .hero .hero-keywords {
+    padding-left: var(--space-sm);
+    gap: 0.2rem;
+  }
 }
 
 .steps-list {

@@ -1,3 +1,5 @@
+const BUSINESS_CONTACT = require("../shared/businessContact");
+
 const escapeHtml = (input = "") =>
   String(input)
     .replace(/&/g, "&amp;")
@@ -123,7 +125,7 @@ function buildEmailTemplate({ title, intro, rows = [], footerNote, cta } = {}) {
       </tr>
       <tr>
         <td style="padding:16px 24px; background:#f8fafc; text-align:center; font-size:11px; color:#6b7280;">
-          Myriad Green · +27 81 721 6701 · irrigationsa@gmail.com · Gauteng, South Africa
+          Myriad Green · <a href="${BUSINESS_CONTACT.phoneTel}" style="color:inherit; text-decoration:none;">${BUSINESS_CONTACT.phoneDisplay}</a> · ${BUSINESS_CONTACT.email} · ${BUSINESS_CONTACT.location}
         </td>
       </tr>
     </table>

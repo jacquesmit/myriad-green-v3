@@ -20,13 +20,27 @@ const GMAIL_PASS = defineSecret("GMAIL_PASS");
 const GMAIL_TO = defineSecret("GMAIL_TO");
 
 // stripe & smtp secrets (configured via `firebase functions:secrets:set`)
-const STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
-const STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
+// SMTP and ADMIN_EMAIL are always needed; stripe secrets are conditional
 const SMTP_HOST = defineSecret("SMTP_HOST");
 const SMTP_PORT = defineSecret("SMTP_PORT");
 const SMTP_USER = defineSecret("SMTP_USER");
 const SMTP_PASS = defineSecret("SMTP_PASS");
 const ADMIN_EMAIL = defineSecret("ADMIN_EMAIL");
+
+// temporarily disable all payment endpoints until provider is ready
+const PAYMENTS_ENABLED = false;
+
+// stripe-related secrets only defined when payments actually enabled
+let STRIPE_SECRET_KEY;
+let STRIPE_WEBHOOK_SECRET;
+if (PAYMENTS_ENABLED) {
+  STRIPE_SECRET_KEY = defineSecret("STRIPE_SECRET_KEY");
+  STRIPE_WEBHOOK_SECRET = defineSecret("STRIPE_WEBHOOK_SECRET");
+} else {
+  // placeholders to avoid runtime errors if referenced accidentally
+  STRIPE_SECRET_KEY = { value: () => null };
+  STRIPE_WEBHOOK_SECRET = { value: () => null };
+}
 
 const SITE_BASE_URL = process.env.SITE_BASE_URL || "https://www.myriadgreen.co.za";
 const BUSINESS_CONTACT = require("./shared/businessContact");
@@ -51,6 +65,12 @@ const EMERGENCY_PRICING = {
     tier2: 200,
     tier3: 400,
   },
+};
+
+// Map service name -> call-out fee in ZAR cents (used for Stripe checkout)
+const EMERGENCY_FEE_CENTS = {
+  "Leak Detection": 1650 * 100,
+  "Drain Unblocking": 1350 * 100,
 };
 
 /**
@@ -402,9 +422,9 @@ exports.createBooking = onRequest(
     // emergency services must go through the Stripe checkout flow
     const emergencyServices = ["Leak Detection", "Drain Unblocking"];
     if (emergencyServices.includes(String(service).trim())) {
-      res.status(400).json({
+      res.status(403).json({
         ok: false,
-        error: "Emergency services must be booked via the payment flow",
+        error: "Emergency services require upfront payment.",
       });
       return;
     }
@@ -824,7 +844,8 @@ exports.sendQuote = onRequest(
 // Stripe checkout + webhook for emergency booking flows
 // ------------------------------------------------------
 
-exports.createCheckoutSession = onRequest(
+if (PAYMENTS_ENABLED) {
+  exports.createCheckoutSession = onRequest(
   { region: "africa-south1", cors: true, secrets: [STRIPE_SECRET_KEY] },
   async (req, res) => {
     if (req.method !== "POST") {
@@ -846,8 +867,9 @@ exports.createCheckoutSession = onRequest(
       return;
     }
 
-    const basePrice = EMERGENCY_PRICING.services[service];
-    if (typeof basePrice !== "number") {
+    // determine fee from cents map
+    const amountCents = EMERGENCY_FEE_CENTS[service];
+    if (!Number.isFinite(amountCents)) {
       res.status(400).json({ error: "Invalid service pricing" });
       return;
     }
@@ -861,8 +883,8 @@ exports.createCheckoutSession = onRequest(
           {
             price_data: {
               currency: "zar",
-              product_data: { name: `${service} call-out fee` },
-              unit_amount: Math.round(basePrice * 100),
+              product_data: { name: `Emergency Call-Out Fee — ${service}` },
+              unit_amount: amountCents,
             },
             quantity: 1,
           },
@@ -876,7 +898,7 @@ exports.createCheckoutSession = onRequest(
           preferredDate: preferredDate || "",
         },
         success_url: `${SITE_BASE_URL}/thank-you-order.html?session_id={CHECKOUT_SESSION_ID}`,
-        cancel_url: `${SITE_BASE_URL}/?booking=cancelled`,
+        cancel_url: `${SITE_BASE_URL}/?payment=cancelled`,
       });
       res.status(200).json({ url: session.url });
     } catch (err) {
@@ -1023,6 +1045,7 @@ Your payment has been received and your booking for ${serviceName} is confirmed.
     res.status(200).send();
   }
 );
+}
 
 exports.verifyCheckoutSession = onRequest(
   { region: "africa-south1", cors: true, secrets: [STRIPE_SECRET_KEY] },
