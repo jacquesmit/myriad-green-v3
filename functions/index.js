@@ -1,10 +1,6 @@
 import { onRequest } from "firebase-functions/v2/https";
 import { defineSecret } from "firebase-functions/params";
 import nodemailer from "nodemailer";
-import {
-  magosSocialHttpHandler,
-  SOCIAL_WORKER_SECRETS
-} from "./magos/social-worker.js";
 
 const GMAIL_USER = defineSecret("GMAIL_USER");
 const GMAIL_PASS = defineSecret("GMAIL_PASS");
@@ -74,16 +70,4 @@ export const sendContactEmail = onRequest(
       res.status(500).json({ ok: false, error: "Email failed to send" });
     }
   }
-);
-
-export const magosSocialBlogWorker = onRequest(
-  {
-    region: "us-central1",
-    cors: false,
-    timeoutSeconds: 120,
-    memory: "512MiB",
-    maxInstances: 3,
-    secrets: SOCIAL_WORKER_SECRETS
-  },
-  magosSocialHttpHandler
 );
